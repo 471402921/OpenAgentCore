@@ -1,7 +1,7 @@
 ---
 title: "沙箱部署"
 source: contracts/agents-api/sandbox-deployment.md
-source_hash: 537ae957a77d625b3adb7828156352a661ae09270b57b174406c6db159a957bd
+source_hash: a806af7b78ceb630d1f2d1af0184b54967bd20f221d288e25c82965f0a1d73ef
 ---
 
 沙箱部署为 Core 管理的 `openai_hosted` 执行选择 Sandbox Provider、每个沙箱的资源以及不可变的 Runtime 发行版。PostgreSQL 为每个安装维护一个当前有效选择；Web 和 Core API 写入同一配置。节点文件保存其已安装副本和特定于主机的路径，且不能覆盖其资源或 Runtime。该选择独立于 Harness。部署可以保持未配置状态，没有节点；此时它拒绝托管准入。
@@ -50,7 +50,7 @@ POST 和 PUT 接受相同的完整选择，并要求提供先前 GET 返回的 `
 | `cpus` | 整数，1 到 255 |
 | `memory_mib` | 整数，512 到 1048576 MiB |
 | `root_disk_mib` | microsandbox：至少 1024 MiB；Docker 和 E2B：省略或为零 |
-| `environment_disk_mib` | microsandbox 自有磁盘：至少 1024 MiB；外部文件系统：零表示不请求配额；正值必须至少为 1024 MiB 且要求强制执行配额；Docker 和 E2B：省略或为零 |
+| `environment_disk_mib` | microsandbox 自有磁盘：至少 1024 MiB；外部文件系统：每个新工作区的获准容量，零表示不请求配额，正值必须至少为 1024 MiB 且要求强制执行配额；Docker 和 E2B：省略或为零 |
 
 这些限制描述每个沙箱。节点的 `max_active` 和 `max_retained` 是独立的预留限制，主机测量值绝不会允许超过其中任何一个。即使数值满足这些边界，原生提供商仍可能拒绝这些值。
 
@@ -61,7 +61,7 @@ microsandbox 会配置 CPU、内存、托管根磁盘，以及位于 `/environme
 
 响应中可选的 `specification.workspace` 是从所选[工作区文件系统](../../../docs/zh/workspace-provider.md)派生的不可变能力回执，不是可独立写入的设置。它仅包含 `attachment`、`user_xattr` 和 `capacity_quota`；文件系统配置、路径和凭据不进入 Sandbox specification。Core 保存前校验组合声明，保留代次校验与节点构造均使用此回执。缺失 `workspace` 时保留自有磁盘模式及现有容量边界。Create 和 Resume 必须且仅当固定代次选择外部存储时提供绑定。
 
-为现有自有磁盘部署启用外部存储时，先选择文件系统配置，再使用兼容资源更新 Sandbox 部署（不支持配额的文件系统使用 `environment_disk_mib: 0`）。选择文件系统不会改变现有代次或 allocation。下一次 Sandbox 更新派生外部能力回执；旧的自有磁盘 allocation 保留原磁盘。文件系统选择必须支持 Provider 声明的要求；已采用外部存储的部署要求等价声明及兼容配额语义。
+为现有自有磁盘部署启用外部存储时，先选择文件系统配置，再使用兼容资源更新 Sandbox 部署（不支持配额的文件系统使用 `environment_disk_mib: 0`）。选择文件系统不会改变现有代次或 allocation。下一次 Sandbox 更新派生外部能力回执；旧的自有磁盘 allocation 保留原磁盘。文件系统选择必须支持 Provider 声明的要求。已采用外部存储的部署要求相同的 `attachment` 和 `user_xattr`；选择可以更改 `capacity_quota`，此后在 Sandbox 更新设置相匹配的 `environment_disk_mib` 之前拒绝新工作区。既有工作区保持其获准时的容量。
 
 ### Runtime 发行版 {#runtime-release}
 
@@ -146,6 +146,8 @@ POST 会在持久保存候选配置之前对其进行验证，并且不会创建
 每个节点会添加 `rollout: {state, ready_generation, diagnostic?}`，其中 `ready_generation` 是可为 null 的持久服务固定状态，`diagnostic` 是目标代次的固定代码；分配项会添加 `deployment_generation`。仅当 `rollout.state` 为 `preparing` 或 `reset` 非 null 时，才每五秒轮询一次；旧 Session 以及失败、需要更新或离线的节点本身均不会使轮询保持活动状态。
 
 节点模式创建先验证目标部署，提交 Session、pending Environment 及初始输入，但不预留计算资源。节点全部已满、离线或准备中时，已接受的工作继续等待；未配置部署、reset 或不支持的组合仍拒绝准入。共同调度器对尚未放置的需求进行有界循环扫描，分页按需求记录时间和 Environment ID 排序，每轮使用固定时间上界，避免持续的新需求阻止重新访问较早的工作。它检查在线状态、精确服务代次就绪情况、地址、共享容量和所选代次的 Harness/文件系统兼容性，然后优先选择最新的合格固定代次。预留后的 placement 保持不可变，直到确认释放或已结清的检查点转移。有界扫描跳过暂时不可调度的需求，并在重启后继续。已有 suspended allocation 按[检查点转移契约](../../../docs/zh/sandbox-provider.md#checkpoint-transfer)，通过同一容量锁预留符合条件的检查点容量；这不构成热恢复和未放置工作之间的全局公平性保证。输入保留[原始五分钟期限](./environments.md#reservations)，等待容量的时间也计入其中。
+
+如果准备工作在新 allocation 预留前失败，Core 仅释放该次尝试的节点预留，并保留已有文件系统身份。其下一次放置需求按不早于释放的时间排序，排在已经等待的工作之后；成功重试使用新选中代的 specification。计算结果不确定的 allocation 继续保留其预留。
 
 ## 重置 {#reset}
 
