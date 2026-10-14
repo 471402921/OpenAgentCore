@@ -1,3 +1,4 @@
+import { ProviderEditor } from "./ProviderEditor";
 import { tr } from "./lib/i18n";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -16,11 +17,14 @@ import { Field, ErrorNotice } from "./components/shared";
 export function ModelEditor({
   value,
   close,
+  onSaved,
 }: {
+  onSaved?: (id: string) => void;
   value: ModelProfile;
   close: () => void;
 }) {
   const [form, setForm] = useState(value);
+  const [providerId, setProviderId] = useState("");
   const cache = useQueryClient();
   const providers = useProviders();
   const save = useMutation({
@@ -28,6 +32,7 @@ export function ModelEditor({
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: ["models"] });
       void cache.invalidateQueries({ queryKey: ["providers"] });
+      onSaved?.(form.id);
       close();
     },
   });
@@ -49,6 +54,7 @@ export function ModelEditor({
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             save.mutate();
           }}
         >
@@ -65,6 +71,13 @@ export function ModelEditor({
                 </SelectOption>
               ))}
             </Select>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setProviderId(crypto.randomUUID())}
+            >
+              {tr("添加 Provider")}
+            </Button>
           </Field>
           <Field label={tr("显示名称")} id="model-name">
             <Input
@@ -139,6 +152,13 @@ export function ModelEditor({
           )}
           <ErrorNotice error={save.error} />
         </form>
+        {providerId && (
+          <ProviderEditor
+            value={{ id: providerId, name: "", revision: 0 }}
+            close={() => setProviderId("")}
+            onSaved={(provider_id) => setForm({ ...form, provider_id })}
+          />
+        )}
         <DialogFooter>
           <Button
             type="submit"

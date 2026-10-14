@@ -139,11 +139,13 @@ export function feishuAPI(store) {
         ),
         runtime = store.get(
           "runtimes",
-          text(route.runtime_id, "运行时", 36, true),
+          text(route.runtime_id || agent?.runtime_id || "", "环境模板", 36),
         );
-      if (!agent || !runtime)
-        throw new AppError(400, "请选择群对应的 Agent 和运行时。");
+      if (!agent || (route.runtime_id && !runtime))
+        throw new AppError(400, "请选择群对应的 Agent 和环境模板。");
       if (body.enabled) {
+        if (!runtime)
+          throw new AppError(400, "Agent 未配置有效的默认环境模板。");
         requireAutomaticRuntime(store, runtime.id);
         const restriction = sessionRestriction(agent, runtime);
         if (restriction) throw new AppError(400, restriction);
@@ -153,7 +155,7 @@ export function feishuAPI(store) {
       return {
         chat_id,
         agent_id: agent.id,
-        runtime_id: runtime.id,
+        runtime_id: route.runtime_id || "",
         project_id: route.project_id || "",
         allow_agent_selection: route.allow_agent_selection === true,
       };
@@ -672,7 +674,17 @@ export function feishuWorker(store, core, product, makeChannel, configId) {
             "请用 /list 查看 Agent，再用唯一名称或完整 ID 选择。",
           );
         const agent = matches[0],
-          runtime = store.get("runtimes", route.runtime_id);
+          runtime = store.get("runtimes", route.runtime_id || agent.runtime_id);
+        if (!runtime)
+          return reject(
+            row,
+            "请为所选 Agent 配置默认环境模板，或为飞书接入指定环境模板。",
+          );
+        try {
+          requireAutomaticRuntime(store, runtime.id);
+        } catch (error) {
+          return reject(row, error.message);
+        }
         const restriction = sessionRestriction(agent, runtime);
         if (restriction) return reject(row, restriction);
         selection = {
@@ -701,15 +713,35 @@ export function feishuWorker(store, core, product, makeChannel, configId) {
         return reject(row, "话题任务不可用，请重新开一个话题描述任务。");
       if (row.text.startsWith("/"))
         return reject(row, "请先 @机器人 描述任务，再在同一话题中发送命令。");
-      if (thread.shared && route?.allow_agent_selection) {
-        const selected = store.get(
-          "feishu_selections",
-          selectionId(row.app_id, row.chat_id, row.sender_id),
+      if (!thread.assignment_resolved) {
+        const selected =
+          thread.shared && route?.allow_agent_selection
+            ? store.get(
+                "feishu_selections",
+                selectionId(row.app_id, row.chat_id, row.sender_id),
+              )
+            : undefined;
+        const agent = store.get(
+          "agents",
+          selected?.agent_id || thread.agent_id,
         );
-        if (selected) {
-          thread = { ...thread, agent_id: selected.agent_id };
-          store.put("feishu_threads", thread);
-        }
+        if (!agent) throw new AppError(400, "Agent 不存在。");
+        const runtime = store.get(
+          "runtimes",
+          thread.runtime_id || agent.runtime_id,
+        );
+        if (!runtime)
+          throw new AppError(400, "Agent 未配置有效的默认环境模板。");
+        requireAutomaticRuntime(store, runtime.id);
+        const restriction = sessionRestriction(agent, runtime);
+        if (restriction) throw new AppError(400, restriction);
+        thread = {
+          ...thread,
+          agent_id: agent.id,
+          runtime_id: runtime.id,
+          assignment_resolved: true,
+        };
+        store.put("feishu_threads", thread);
       }
       task = await product("PUT", `/app/tasks/${thread.task_id}`, {
         name: media.title.split("\n")[0].slice(0, 80),

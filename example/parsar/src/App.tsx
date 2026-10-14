@@ -4,9 +4,7 @@ import { tr } from "./lib/i18n";
 import { useEffect, useState } from "react";
 import {
   Bot,
-  Cpu,
   BookOpen,
-  Plug,
   Server,
   Moon,
   Sun,
@@ -19,10 +17,8 @@ import {
   ScrollText,
   Settings2,
   Monitor,
-  KeyRound,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { Credentials } from "./Credentials";
 import { Capabilities } from "./Capabilities";
 import { Records, Audit } from "./Records";
 import { Settings, type WorkspaceSettings } from "./Settings";
@@ -34,9 +30,7 @@ import { Feishu } from "./Feishu";
 import { Tasks } from "./Tasks";
 import { TaskDetail } from "./TaskDetail";
 import { Projects } from "./Projects";
-import { Models } from "./Models";
-import { Skills } from "./Skills";
-import { MCPs, Runtimes } from "./Resources";
+import { Runtimes } from "./Resources";
 import { Agents } from "./Agents";
 import { SessionPage } from "./SessionPage";
 import { AgentDetail } from "./AgentDetail";
@@ -92,7 +86,6 @@ export function App() {
   const projectId =
     new URLSearchParams(route.split("?")[1]).get("project") || "";
   const navigation = [
-    { href: "/agents", label: "Agents", icon: Bot, group: "" },
     { href: "/tasks", label: tr("任务"), icon: Columns3, group: tr("工作") },
     { href: "/projects", label: tr("项目"), icon: Folder, group: tr("工作") },
     {
@@ -121,31 +114,30 @@ export function App() {
       icon: ScrollText,
       group: tr("活动"),
     },
-    { href: "/models", label: tr("模型"), icon: Cpu, group: tr("构建") },
+    { href: "/agents", label: tr("Agent 模板"), icon: Bot, group: tr("构建") },
+    {
+      href: "/runtimes",
+      label: tr("环境模板"),
+      icon: Server,
+      group: tr("构建"),
+    },
     {
       href: "/capabilities",
-      label: tr("能力"),
+      label: tr("资源库"),
       icon: BookOpen,
       group: tr("构建"),
     },
-    { href: "/runtimes", label: tr("运行时"), icon: Server, group: tr("构建") },
     {
       href: "/feishu",
-      label: tr("飞书"),
+      label: tr("飞书接入"),
       icon: MessageSquare,
-      group: tr("构建"),
-    },
-    {
-      href: "/credentials",
-      label: tr("凭据"),
-      icon: KeyRound,
-      group: tr("构建"),
+      group: tr("接入与设置"),
     },
     {
       href: "/settings",
       label: tr("设置"),
       icon: Settings2,
-      group: tr("工作空间"),
+      group: tr("接入与设置"),
     },
   ];
   return (
@@ -174,6 +166,10 @@ export function App() {
           {navigation.map(({ href, label, icon: Icon, group }, index) => {
             const selected =
               route.split("?")[0] === href ||
+              (href === "/capabilities" &&
+                ["/models", "/skills", "/mcps", "/credentials"].includes(
+                  route,
+                )) ||
               (href === "/tasks" && !!taskId) ||
               (href === "/agents" && !!agentId) ||
               (href === "/conversations" && !!sessionId);
@@ -195,7 +191,7 @@ export function App() {
               </div>
             );
           })}
-        <ListSlot slotId="layout.nav.bottom" />
+          <ListSlot slotId="layout.nav.bottom" />
         </nav>
         <div className="ml-auto flex items-center gap-1 sm:ml-0 sm:mt-3 sm:border-t sm:border-line sm:pt-2.5">
           <span className="hidden flex-1 px-2 text-xs text-fg-muted sm:block">
@@ -249,7 +245,7 @@ export function App() {
         ) : route === "/audit" ? (
           <Audit />
         ) : route === "/credentials" ? (
-          <Credentials />
+          <Capabilities key={route} initialTab="credentials" />
         ) : route === "/settings" ? (
           <Settings />
         ) : taskId ? (
@@ -267,13 +263,13 @@ export function App() {
             <Agents selectedId={agentId} />
           )
         ) : route === "/models" ? (
-          <Models />
+          <Capabilities key={route} initialTab="models" />
         ) : route === "/capabilities" ? (
-          <Capabilities />
+          <Capabilities key={route} />
         ) : route === "/skills" ? (
-          <Skills />
+          <Capabilities key={route} initialTab="skills" />
         ) : route === "/mcps" ? (
-          <MCPs />
+          <Capabilities key={route} initialTab="mcps" />
         ) : route === "/schedules" ? (
           <Schedules />
         ) : route === "/feishu" ? (

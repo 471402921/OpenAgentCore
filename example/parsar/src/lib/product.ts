@@ -41,6 +41,17 @@ export interface AgentProfile extends NamedResource {
   mcp_ids: string[];
 }
 export interface SessionRecord {
+  configuration?: {
+    agent_name: string;
+    model: string;
+    harness: CoreHarnessKind;
+    environment: string;
+    environment_name: string;
+    workspace_directory?: string;
+    skills: { id: string; version: string | null }[];
+    mcps: string[];
+    capabilities: { name: string; kind: string; version: string }[];
+  };
   pricing?: { input: number; output: number };
   source?: "web" | "task" | "feishu" | "schedule" | "mcp";
   deleted_at?: number;

@@ -3,6 +3,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Package, BookOpen, FileText } from "lucide-react";
 import { product } from "./lib/product";
+import { Models } from "./Models";
+import { Credentials } from "./Credentials";
 import { Skills } from "./Skills";
 import { MCPs } from "./Resources";
 import { PageHeader, ErrorNotice, Field } from "./components/shared";
@@ -41,21 +43,28 @@ export const useCapabilities = () =>
     queryKey: ["capabilities"],
     queryFn: () => product<Capability[]>("capabilities"),
   });
-export function Capabilities() {
-  const [tab, setTab] = useState("skills");
+export function Capabilities({
+  initialTab = "models",
+}: {
+  initialTab?: string;
+}) {
+  const [tab, setTab] = useState(initialTab);
   return (
     <>
+      <PageHeader title={tr("资源库")} />
       <div
         className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-6"
         role="tablist"
         aria-label={tr("能力类型")}
       >
         {[
+          ["models", tr("模型")],
           ["skills", "Skills"],
           ["mcps", "MCP"],
           ["plugin", "Plugins"],
           ["prompt", tr("系统提示词")],
           ["knowledge", tr("知识")],
+          ["credentials", tr("凭据")],
         ].map(([key, label]) => (
           <Button
             key={key}
@@ -69,7 +78,11 @@ export function Capabilities() {
           </Button>
         ))}
       </div>
-      {tab === "skills" ? (
+      {tab === "models" ? (
+        <Models />
+      ) : tab === "credentials" ? (
+        <Credentials />
+      ) : tab === "skills" ? (
         <Skills />
       ) : tab === "mcps" ? (
         <MCPs />

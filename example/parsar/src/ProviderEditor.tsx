@@ -23,7 +23,9 @@ type Choice = {
 export function ProviderEditor({
   value,
   close,
+  onSaved,
 }: {
+  onSaved?: (id: string) => void;
   value: ProviderProfile;
   close: () => void;
 }) {
@@ -42,13 +44,16 @@ export function ProviderEditor({
     refetchOnReconnect: false,
   });
   if (!value.revision)
-    return <ProviderForm value={value} models={[]} close={close} />;
+    return (
+      <ProviderForm value={value} models={[]} close={close} onSaved={onSaved} />
+    );
   if (snapshot.data)
     return (
       <ProviderForm
         value={snapshot.data}
         models={snapshot.data.models}
         close={close}
+        onSaved={onSaved}
       />
     );
   return (
@@ -80,7 +85,9 @@ function ProviderForm({
   value,
   models,
   close,
+  onSaved,
 }: {
+  onSaved?: (id: string) => void;
   value: ProviderProfile;
   models: ModelProfile[];
   close: () => void;
@@ -136,6 +143,7 @@ function ProviderForm({
         cache.invalidateQueries({ queryKey: ["providers"] }),
         cache.invalidateQueries({ queryKey: ["models"] }),
       ]);
+      onSaved?.(value.id);
       close();
     },
   });
@@ -187,6 +195,7 @@ function ProviderForm({
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
+              e.stopPropagation();
               discover.mutate();
             }}
           >
@@ -267,6 +276,7 @@ function ProviderForm({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
+                        e.stopPropagation();
                         addCustom();
                       }
                     }}

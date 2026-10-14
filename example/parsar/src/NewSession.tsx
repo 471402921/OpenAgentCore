@@ -103,14 +103,14 @@ export function NewSession({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </Field>
-          <Field label={tr("运行时")} id="session-runtime">
+          <Field label={tr("环境模板")} id="session-runtime">
             <Select
               disabled={save.isPending || uncertain}
               id="session-runtime"
               value={form.runtime_id}
               onValueChange={(runtime_id) => setForm({ ...form, runtime_id })}
             >
-              <SelectOption value="">{tr("选择运行时")}</SelectOption>
+              <SelectOption value="">{tr("选择环境模板")}</SelectOption>
               {runtimes.data?.map((runtime) => (
                 <SelectOption key={runtime.id} value={runtime.id}>
                   {runtime.name}
@@ -119,7 +119,7 @@ export function NewSession({
             </Select>
             {!runtimes.isPending && !runtimes.data?.length && (
               <a className="underline" href="#/runtimes" onClick={close}>
-                {tr("前往添加运行时")}
+                {tr("前往添加环境模板")}
               </a>
             )}
           </Field>

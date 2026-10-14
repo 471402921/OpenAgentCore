@@ -122,7 +122,13 @@ export function Skills() {
     </>
   );
 }
-function SkillCreate({ close }: { close: () => void }) {
+export function SkillCreate({
+  close,
+  onSaved,
+}: {
+  close: () => void;
+  onSaved?: (id: string) => void;
+}) {
   const cache = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -143,7 +149,8 @@ function SkillCreate({ close }: { close: () => void }) {
           },
         ],
       }),
-    onSuccess: () => {
+    onSuccess: (skill) => {
+      onSaved?.(skill.id);
       void cache.invalidateQueries({ queryKey: ["skills"] });
       close();
     },
@@ -167,6 +174,7 @@ function SkillCreate({ close }: { close: () => void }) {
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             save.mutate();
           }}
         >

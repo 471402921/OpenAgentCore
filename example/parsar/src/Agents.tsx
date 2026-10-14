@@ -3,7 +3,7 @@ import { tr } from "./lib/i18n";
 import { AgentDetail } from "./AgentDetail";
 import { ResizeHandle } from "./components/ui/resize-handle";
 import { useResizableWidth } from "./lib/layout-width";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Copy, Trash2, Layers } from "lucide-react";
 import {
@@ -27,6 +27,40 @@ import {
 import { ErrorNotice, Field, Help, PageHeader } from "./components/shared";
 import { EmptyState } from "./components/ui/empty-state";
 import { Ledger, LedgerHeader, LedgerRow } from "./components/ui/ledger";
+const draftKey = "parsar-agent-drafts";
+function readAgentDrafts(): Record<string, AgentProfile> {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(draftKey) || "{}");
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
+  } catch {
+    return {};
+  }
+}
+function writeAgentDraft(form: AgentProfile) {
+  try {
+    const drafts = readAgentDrafts();
+    delete drafts[form.id];
+    drafts[form.id] = form;
+    sessionStorage.setItem(draftKey, JSON.stringify(drafts));
+  } catch {
+    /* Editing remains available without browser storage. */
+  }
+}
+function clearAgentDraft(id: string) {
+  try {
+    const drafts = readAgentDrafts();
+    delete drafts[id];
+    sessionStorage.setItem(draftKey, JSON.stringify(drafts));
+  } catch {
+    /* Browser storage may be unavailable. */
+  }
+}
+export function readAgentDraft(id?: string): AgentProfile | null {
+  const drafts = readAgentDrafts();
+  return (id ? drafts[id] : Object.values(drafts).at(-1)) || null;
+}
 export function Agents({ selectedId }: { selectedId?: string }) {
   const rail = useResizableWidth({
     storageKey: "agent-rail",
@@ -39,17 +73,19 @@ export function Agents({ selectedId }: { selectedId?: string }) {
   const models = useModels();
   const cache = useQueryClient();
   const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<AgentProfile | null>(null);
+  const [editing, setEditing] = useState<AgentProfile | null>(() =>
+    selectedId ? null : readAgentDraft(),
+  );
   const remove = useMutation({
     mutationFn: (id: string) => product(`agents/${id}`, "DELETE"),
     onSuccess: () => cache.invalidateQueries({ queryKey: ["agents"] }),
   });
   return (
     <>
-      <PageHeader title="Agents">
+      <PageHeader title={tr("Agent 模板")}>
         <Help>
           {tr(
-            "Agent 保存模型、指令、Skills 和 MCP。开始会话时选择运行时，每个会话有独立的工作区和历史。",
+            "Agent 模板定义职责，绑定模型、Skills 和 MCP，并选择默认环境模板。通过网页或飞书开始任务。",
           )}
         </Help>
         <Button
@@ -67,6 +103,20 @@ export function Agents({ selectedId }: { selectedId?: string }) {
         </Button>
       </PageHeader>
       <ErrorNotice error={query.error || models.error || remove.error} />
+      {Object.values(readAgentDrafts()).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-6 py-2 text-xs">
+          <span className="text-fg-muted">{tr("未保存的草稿")}</span>
+          {Object.values(readAgentDrafts()).map((draft) => (
+            <Button
+              key={draft.id}
+              variant="ghost"
+              onClick={() => setEditing(draft)}
+            >
+              {tr("恢复草稿")}: {draft.name || tr("新建 Agent")}
+            </Button>
+          ))}
+        </div>
+      )}
       <div className="border-b border-line px-6 py-2">
         <Input
           aria-label={tr("搜索 Agent")}
@@ -199,13 +249,20 @@ export function AgentEditor({
   close: () => void;
 }) {
   const cache = useQueryClient();
-  const [form, setForm] = useState(value);
+  const [form, setForm] = useState(() => {
+    const draft = readAgentDraft(value.id);
+    return draft?.id === value.id ? draft : value;
+  });
+  useEffect(() => {
+    writeAgentDraft(form);
+  }, [form]);
   const [preset, setPreset] = useState("");
   const save = useMutation({
     mutationFn: () => product(`agents/${form.id}`, "PUT", form),
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: ["agents"] });
       void cache.invalidateQueries({ queryKey: ["agent", form.id] });
+      clearAgentDraft(form.id);
       close();
     },
   });
@@ -284,9 +341,19 @@ export function AgentEditor({
             change={(configuration) => setForm({ ...form, ...configuration })}
           />
           <ErrorNotice error={save.error} />
-        <ListSlot slotId="agent.settings.section" context={{ agent: form }} />
+          <ListSlot slotId="agent.settings.section" context={{ agent: form }} />
         </form>
         <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              clearAgentDraft(form.id);
+              close();
+            }}
+          >
+            {tr("放弃草稿")}
+          </Button>
           <Button
             type="submit"
             form="agent-form"

@@ -1,10 +1,24 @@
 import { zipSync, strToU8 } from "fflate";
 import { test, expect, type Page } from "@playwright/test";
 async function navigate(page: Page, name: string) {
-  if (["Skills", "MCP"].includes(name)) {
-    await page.getByRole("link", { name: "能力", exact: true }).click();
+  if (["Skills", "MCP", "模型", "凭据"].includes(name)) {
+    await page.getByRole("link", { name: "资源库", exact: true }).click();
     await page.getByRole("tab", { name, exact: true }).click();
-  } else await page.getByRole("link", { name, exact: true }).click();
+  } else
+    await page
+      .getByRole("link", {
+        name:
+          (
+            {
+              Agents: "Agent 模板",
+              运行时: "环境模板",
+              飞书: "飞书接入",
+              能力: "资源库",
+            } as Record<string, string>
+          )[name] || name,
+        exact: true,
+      })
+      .click();
 }
 async function resources(page: Page) {
   await page.goto("/#/models");
@@ -31,7 +45,7 @@ async function resources(page: Page) {
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await navigate(page, "运行时");
-  await page.getByRole("button", { name: "添加运行时" }).click();
+  await page.getByRole("button", { name: "添加环境模板" }).click();
   await page.getByLabel("名称", { exact: true }).fill("开发沙箱");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -71,7 +85,7 @@ async function agent(page: Page) {
 async function session(page: Page, name = "代码审查") {
   await page.getByRole("button", { name: "开始会话", exact: true }).click();
   await page.getByLabel("会话名称").fill(name);
-  await page.getByLabel("运行时", { exact: true }).click();
+  await page.getByLabel("环境模板", { exact: true }).click();
   await page.getByRole("option", { name: "开发沙箱", exact: true }).click();
   await page.getByLabel("第一条消息").fill("Review code");
   await page.getByRole("button", { name: "开始", exact: true }).click();
@@ -145,7 +159,7 @@ for (const platform of [
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await navigate(page, "运行时");
-    await page.getByRole("button", { name: "添加运行时" }).click();
+    await page.getByRole("button", { name: "添加环境模板" }).click();
     await page.getByLabel("名称", { exact: true }).fill("我的 Mac");
     await page.getByLabel("环境类型").click();
     await page.getByRole("option", { name: "用户机器", exact: true }).click();
@@ -168,7 +182,7 @@ for (const platform of [
     await page.getByRole("link", { name: "打开", exact: true }).click();
     await page.getByRole("button", { name: "开始会话", exact: true }).click();
     await page.getByLabel("会话名称").fill("本地会话");
-    await page.getByLabel("运行时", { exact: true }).click();
+    await page.getByLabel("环境模板", { exact: true }).click();
     await page.getByRole("option", { name: "我的 Mac", exact: true }).click();
     await expect(page.getByLabel("第一条消息")).toHaveCount(0);
     await page.getByRole("button", { name: "开始", exact: true }).click();
@@ -264,6 +278,7 @@ test("lost creation response can be recovered from the Agent without a duplicate
   await session(page);
   await expect(page.getByRole("alert")).toContainText("lost");
   await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "动态", exact: true }).click();
   await page.getByRole("link", { name: /代码审查.*待恢复/ }).click();
   await page.reload();
   await page.getByRole("button", { name: "恢复创建" }).click();
@@ -294,7 +309,11 @@ test("Skill version upload and default selection", async ({ page }) => {
   await resources(page);
   await page.getByRole("button", { name: /code-review v1/ }).click();
   await page.getByRole("button", { name: "查看文件", exact: true }).click();
-  await expect(page.getByText("Inspect changed files and report actionable issues.", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("Inspect changed files and report actionable issues.", {
+      exact: false,
+    }),
+  ).toBeVisible();
   await page.getByLabel("上传 Skill 新版本").setInputFiles({
     name: "review.zip",
     mimeType: "application/zip",
@@ -603,7 +622,7 @@ test("unsupported runtime bindings are explained before Session creation", async
   await page.getByRole("link", { name: "打开", exact: true }).click();
   await page.getByRole("button", { name: "开始会话", exact: true }).click();
   await page.getByLabel("会话名称").fill("Blocked");
-  await page.getByLabel("运行时", { exact: true }).click();
+  await page.getByLabel("环境模板", { exact: true }).click();
   await page.getByRole("option", { name: "纯文本", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(
     "Skills 需要托管运行环境",
@@ -681,7 +700,7 @@ test("project task dispatch, discussion, review, schedules and Feishu configurat
     .fill("Check focus order and return a concise verification report.");
   await page.getByLabel("执行 Agent", { exact: true }).click();
   await page.getByRole("option", { name: "审查助手", exact: true }).click();
-  await page.getByLabel("任务运行时", { exact: true }).click();
+  await page.getByLabel("任务环境模板", { exact: true }).click();
   await page.getByRole("option", { name: "开发沙箱", exact: true }).click();
   await page.getByRole("button", { name: "保存任务", exact: true }).click();
   await expect(
@@ -743,7 +762,7 @@ test("project task dispatch, discussion, review, schedules and Feishu configurat
   await page.getByLabel("群 ID 1", { exact: true }).fill("oc_fixture");
   await page.getByLabel("群 Agent 1", { exact: true }).click();
   await page.getByRole("option", { name: "审查助手", exact: true }).click();
-  await page.getByLabel("群运行时 1", { exact: true }).click();
+  await page.getByLabel("群环境模板 1", { exact: true }).click();
   await page.getByRole("option", { name: "开发沙箱", exact: true }).click();
   await page.getByRole("checkbox", { name: /允许群成员切换 Agent/ }).check();
   await page.getByRole("button", { name: "保存飞书配置", exact: true }).click();
@@ -794,22 +813,35 @@ test("workspace settings retain the name and switch the complete navigation betw
   ).toBeVisible();
 });
 
-test("business questions appear in Inbox and use the public function-result event", async ({ page, request }) => {
-  await resources(page); await agent(page);
-  await page.getByRole("link", { name: "打开", exact: true }).click(); await session(page);
-  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
-  const question = await request.post("http://127.0.0.1:18181/question", { headers: { Authorization: "Bearer fixture-project-key" } });
+test("business questions appear in Inbox and use the public function-result event", async ({
+  page,
+  request,
+}) => {
+  await resources(page);
+  await agent(page);
+  await page.getByRole("link", { name: "打开", exact: true }).click();
+  await session(page);
+  await expect(
+    page.getByRole("button", { name: "发送", exact: true }),
+  ).toBeVisible();
+  const question = await request.post("http://127.0.0.1:18181/question", {
+    headers: { Authorization: "Bearer fixture-project-key" },
+  });
   expect(question.ok()).toBeTruthy();
   await navigate(page, "收件箱");
   await expect(page.getByText("选择报告语言", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "English", exact: true }).click();
   await page.getByRole("button", { name: "提交回答", exact: true }).click();
-  await expect(page.getByText("没有待回答的问题", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("没有待回答的问题", { exact: true }),
+  ).toBeVisible();
 });
 
-test("credential tokens remain write-only through creation, replacement, and deletion", async ({ page }) => {
+test("credential tokens remain write-only through creation, replacement, and deletion", async ({
+  page,
+}) => {
   await page.goto("/#/credentials");
-  page.once("dialog", dialog => dialog.accept("Team secrets"));
+  page.once("dialog", (dialog) => dialog.accept("Team secrets"));
   await page.getByRole("button", { name: "新建凭据库" }).click();
   await page.getByRole("button", { name: "添加凭据" }).click();
   await page.getByLabel("名称", { exact: true }).fill("Docs credential");
@@ -818,33 +850,187 @@ test("credential tokens remain write-only through creation, replacement, and del
   await page.getByRole("button", { name: "保存凭据" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.reload();
-  await expect(page.getByText("Docs credential", { exact: true })).toBeVisible();
-  await expect(page.locator("body")).not.toContainText("fixture-write-only-token");
+  await expect(
+    page.getByText("Docs credential", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(
+    "fixture-write-only-token",
+  );
   await page.getByRole("button", { name: "更换密钥" }).click();
   await expect(page.getByLabel("Bearer Token")).toHaveValue("");
   await page.getByLabel("Bearer Token").fill("replacement-token");
   await page.getByRole("button", { name: "保存凭据" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  page.once("dialog", dialog => dialog.accept());
+  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "删除凭据 Docs credential" }).click();
-  await expect(page.getByText("Docs credential", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Docs credential", { exact: true })).toHaveCount(
+    0,
+  );
 });
 
-test("installed frontend extension renders a Parsar slot and disappears when disabled", async ({ page }) => {
+test("installed frontend extension renders a Parsar slot and disappears when disabled", async ({
+  page,
+}) => {
   await page.goto("/#/capabilities");
   await page.getByRole("tab", { name: "Plugins", exact: true }).click();
   await page.getByRole("button", { name: "添加能力", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("Workspace helper");
-  await page.getByLabel("Plugin ZIP（新版本）").setInputFiles({ name: "helper.zip", mimeType: "application/zip", buffer: Buffer.from(zipSync({ ".codex-plugin/plugin.json": strToU8(JSON.stringify({ name: "helper" })) })) });
+  await page.getByLabel("Plugin ZIP（新版本）").setInputFiles({
+    name: "helper.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(
+      zipSync({
+        ".codex-plugin/plugin.json": strToU8(
+          JSON.stringify({ name: "helper" }),
+        ),
+      }),
+    ),
+  });
   const code = `const {React,definePlugin}=window.__PARSAR_PLUGIN_API__;definePlugin('helper',ctx=>ctx.slots.register('layout.header.actions',{key:'helper',component:()=>React.createElement('div',{'data-testid':'plugin-banner'},'Workspace extension ready')}));`;
-  await page.getByLabel("前端扩展 JavaScript（可选）").setInputFiles({ name: "client.js", mimeType: "text/javascript", buffer: Buffer.from(code) });
+  await page.getByLabel("前端扩展 JavaScript（可选）").setInputFiles({
+    name: "client.js",
+    mimeType: "text/javascript",
+    buffer: Buffer.from(code),
+  });
   await page.getByRole("button", { name: "保存能力", exact: true }).click();
-  await expect(page.getByTestId("plugin-banner")).toHaveText("Workspace extension ready");
+  await expect(page.getByTestId("plugin-banner")).toHaveText(
+    "Workspace extension ready",
+  );
   await page.reload();
   await expect(page.getByTestId("plugin-banner")).toBeVisible();
   await page.getByRole("tab", { name: "Plugins", exact: true }).click();
-  await page.getByRole("button", { name: "Workspace helper", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Workspace helper", exact: true })
+    .click();
   await page.getByLabel("停用此能力").check();
   await page.getByRole("button", { name: "保存能力", exact: true }).click();
   await expect(page.getByTestId("plugin-banner")).toHaveCount(0);
+});
+
+test("template editor preserves drafts through inline resource creation and reload", async ({
+  page,
+  request,
+}) => {
+  await resources(page);
+  await navigate(page, "Agents");
+  await page.getByRole("button", { name: "新建 Agent", exact: true }).click();
+  await page.getByLabel("Agent 名称", { exact: true }).fill("Draft agent");
+  await page
+    .getByLabel("指令", { exact: true })
+    .fill("Keep these instructions");
+  await page.getByRole("button", { name: "添加环境模板", exact: true }).click();
+  await page.getByLabel("名称", { exact: true }).fill("Inline environment");
+  await page
+    .getByRole("dialog")
+    .last()
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.getByLabel("默认环境模板")).toContainText(
+    "Inline environment",
+  );
+  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+    "Keep these instructions",
+  );
+  expect(await (await request.get("/app/agents")).json()).toHaveLength(0);
+  await page.reload();
+  await expect(page.getByLabel("Agent 名称", { exact: true })).toHaveValue(
+    "Draft agent",
+  );
+  await expect(page.getByLabel("默认环境模板")).toContainText(
+    "Inline environment",
+  );
+  await page.getByRole("button", { name: "添加MCP", exact: true }).click();
+  await page.getByLabel("名称", { exact: true }).fill("Inline tool");
+  await page.getByLabel("服务标识").fill("inline-tool");
+  await page.getByLabel("MCP 地址").fill("https://example.com/mcp");
+  await page
+    .getByRole("dialog")
+    .last()
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await expect(page.getByLabel("Inline tool", { exact: true })).toBeChecked();
+  await page.getByLabel("模型", { exact: true }).click();
+  await page
+    .getByRole("option", { name: "Moonshot / Kimi", exact: true })
+    .click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("link", { name: "打开", exact: true }).click();
+  await expect(
+    page.getByRole("tab", { name: "配置", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByText("Inline tool", { exact: true })).toBeVisible();
+});
+
+test("an existing Agent draft restores once in the detail rail", async ({
+  page,
+}) => {
+  await resources(page);
+  await agent(page);
+  await page.getByRole("link", { name: "打开", exact: true }).click();
+  await page.getByRole("button", { name: "配置", exact: true }).click();
+  await page.getByLabel("指令", { exact: true }).fill("Restored detail draft");
+  await page.reload();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+    "Restored detail draft",
+  );
+  await page.getByRole("button", { name: "放弃草稿", exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("drafts for different Agents survive editing and copying other templates", async ({
+  page,
+  request,
+}) => {
+  await resources(page);
+  await agent(page);
+  const [first] = await (await request.get("/app/agents")).json();
+  const secondId = crypto.randomUUID();
+  const created = await request.put(`/app/agents/${secondId}`, {
+    headers: { origin: "http://127.0.0.1:18180" },
+    data: { ...first, id: secondId, revision: 0, name: "Second Agent" },
+  });
+  expect(created.ok()).toBeTruthy();
+  await page.goto(`/#/agents/${first.id}?view=full`);
+  await page.getByRole("button", { name: "配置", exact: true }).click();
+  await page.getByLabel("指令", { exact: true }).fill("First unsaved draft");
+  await page.keyboard.press("Escape");
+  await page.goto(`/#/agents/${secondId}?view=full`);
+  await page.getByRole("button", { name: "配置", exact: true }).click();
+  await page.getByLabel("指令", { exact: true }).fill("Second unsaved draft");
+  await page.keyboard.press("Escape");
+  await page.goto(`/#/agents/${first.id}?view=full`);
+  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+    "First unsaved draft",
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.goto(`/#/agents/${secondId}?view=full`);
+  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+    "Second unsaved draft",
+  );
+  await page.keyboard.press("Escape");
+  await page.goto("/#/agents");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "复制 审查助手", exact: true })
+    .click();
+  await page.getByLabel("Agent 名称", { exact: true }).fill("Copied draft");
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "恢复草稿: Second Agent", exact: true })
+    .click();
+  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+    "Second unsaved draft",
+  );
+  await page.getByRole("button", { name: "放弃草稿", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "恢复草稿: Copied draft", exact: true }),
+  ).toBeVisible();
 });

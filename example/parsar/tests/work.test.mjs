@@ -1793,3 +1793,126 @@ test("Feishu private informational and rejected commands retain the active conve
     1,
   );
 });
+
+test("Feishu inherits defaults for new topics, freezes existing topics, and validates shared selections", async (t) => {
+  const f = await feishu(t);
+  const agent = await f.api("PUT", `/app/agents/${f.agent.id}`, {
+    ...f.agent,
+    runtime_id: f.runtime.id,
+  });
+  const config = await f.api("GET", `/app/feishu/bots/${botId}`);
+  const inherited = await f.api("PUT", `/app/feishu/bots/${botId}`, {
+    ...config,
+    routes: config.routes.map((route) => ({
+      ...route,
+      runtime_id: "",
+      allow_agent_selection: true,
+    })),
+  });
+  assert.equal(inherited.routes[0].runtime_id, "");
+  const w = f.create();
+  w.receive("cli_0123456789abcdef", f.message);
+  await w.tick();
+  const thread = f.store.list("feishu_threads")[0];
+  assert.equal(thread.runtime_id, f.runtime.id);
+  const other = await f.put("runtimes", {
+    name: "Another text environment",
+    environment: "none",
+  });
+  await f.api("PUT", `/app/agents/${agent.id}`, {
+    ...agent,
+    runtime_id: other.id,
+  });
+  w.receive("cli_0123456789abcdef", {
+    ...f.message,
+    messageId: "om_followup_default",
+    rootId: f.message.messageId,
+  });
+  await w.tick();
+  assert.equal(
+    f.store.get("feishu_threads", thread.id).runtime_id,
+    f.runtime.id,
+  );
+  w.receive("cli_0123456789abcdef", {
+    ...f.message,
+    messageId: "om_new_default",
+  });
+  await w.tick();
+  assert.equal(
+    f.store
+      .list("feishu_threads")
+      .find((row) => row.root_id === "om_new_default").runtime_id,
+    other.id,
+  );
+  const missing = await f.put("agents", {
+    ...f.agent,
+    id: undefined,
+    revision: undefined,
+    name: "No default",
+  });
+  w.receive("cli_0123456789abcdef", {
+    ...f.message,
+    messageId: "om_select_missing",
+    content: `/select ${missing.id}`,
+  });
+  await w.tick();
+  assert.equal(
+    f.store
+      .list("feishu_inbound")
+      .find((row) => row.message_id === "om_select_missing").state,
+    "rejected",
+  );
+  assert.equal(f.store.list("feishu_selections").length, 0);
+  await w.stop();
+});
+
+test("Session configuration summary is frozen with the creation request and excludes credentials", async (t) => {
+  const f = await setup(t);
+  const id = randomUUID();
+  f.setLose();
+  await assert.rejects(
+    f.api("PUT", `/app/sessions/${id}`, {
+      name: "Snapshot",
+      agent_id: f.agent.id,
+      runtime_id: f.runtime.id,
+      input: "Work",
+    }),
+    /lost/,
+  );
+  const before = (await f.api("GET", `/app/sessions/${id}`)).configuration;
+  await f.api("PUT", `/app/agents/${f.agent.id}`, {
+    ...f.agent,
+    name: "Changed",
+    harness: "claude_sdk",
+  });
+  const settled = await f.api("PUT", `/app/sessions/${id}`, {});
+  assert.deepEqual(settled.configuration, before);
+  assert.equal(before.agent_name, f.agent.name);
+  assert.equal(before.harness, "codex");
+  assert.equal(settled.request, undefined);
+  assert.equal(JSON.stringify(before).includes("api_key"), false);
+  assert.equal(JSON.stringify(before).includes("instructions"), false);
+});
+
+test("an inherited Feishu route can be disabled after clearing its Agent default", async (t) => {
+  const f = await feishu(t);
+  const agent = await f.api("PUT", `/app/agents/${f.agent.id}`, {
+    ...f.agent,
+    runtime_id: f.runtime.id,
+  });
+  const config = await f.api("GET", `/app/feishu/bots/${botId}`);
+  const inherited = await f.api("PUT", `/app/feishu/bots/${botId}`, {
+    ...config,
+    routes: config.routes.map((route) => ({ ...route, runtime_id: "" })),
+  });
+  await f.api("PUT", `/app/agents/${agent.id}`, { ...agent, runtime_id: "" });
+  const disabled = await f.api("PUT", `/app/feishu/bots/${botId}`, {
+    ...inherited,
+    enabled: false,
+  });
+  assert.equal(disabled.enabled, false);
+  await assert.rejects(
+    f.api("PUT", `/app/feishu/bots/${botId}`, { ...disabled, enabled: true }),
+    /默认环境/,
+  );
+});

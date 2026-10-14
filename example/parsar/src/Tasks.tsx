@@ -366,7 +366,7 @@ export function TaskEditor({
                 ))}
               </Select>
             </Field>
-            <Field label={tr("任务运行时")} id="task-runtime">
+            <Field label={tr("任务环境模板")} id="task-runtime">
               <Select
                 id="task-runtime"
                 value={form.runtime_id}

@@ -41,7 +41,9 @@ export function SessionDetail({
   machine,
   taskId,
   brief,
+  configuration,
 }: {
+  configuration?: SessionRecord["configuration"];
   id: string;
   agentId: string;
   machine?: SessionRecord["self_hosted"];
@@ -130,8 +132,64 @@ export function SessionDetail({
         >
           <Info />
         </Button>
-      <ListSlot slotId="conversation.header.actions" context={{ sessionId: id, agentId }} />
+        <ListSlot
+          slotId="conversation.header.actions"
+          context={{ sessionId: id, agentId }}
+        />
       </header>
+      <details className="shrink-0 border-b border-line px-6 py-2 text-xs">
+        <summary className="cursor-pointer font-medium">
+          {tr("本次运行")}
+        </summary>
+        <div className="max-h-56 overflow-auto py-3">
+          <PropertyList>
+            <Property label="Core Session">{id}</Property>
+            <Property label="Core Environment">{environmentId || "—"}</Property>
+            {configuration && (
+              <>
+                <Property label={tr("Agent 模板")}>
+                  {configuration.agent_name}
+                </Property>
+                <Property label={tr("模型")}>{configuration.model}</Property>
+                <Property label={tr("执行引擎")}>
+                  {configuration.harness}
+                </Property>
+                <Property label={tr("环境模板")}>
+                  {configuration.environment_name} · {configuration.environment}
+                </Property>
+                {configuration.workspace_directory && (
+                  <Property label={tr("工作目录")}>
+                    {configuration.workspace_directory}
+                  </Property>
+                )}
+                <Property label="Skills">
+                  {configuration.skills
+                    .map(
+                      (skill) =>
+                        `${skill.id} · ${skill.version || tr("创建时使用默认版本")}`,
+                    )
+                    .join(", ") || "—"}
+                </Property>
+                <Property label="MCP">
+                  {configuration.mcps.join(", ") || "—"}
+                </Property>
+                <Property label={tr("能力")}>
+                  {configuration.capabilities
+                    .map((row) => `${row.name} (${row.kind}) · v${row.version}`)
+                    .join(", ") || "—"}
+                </Property>
+              </>
+            )}
+          </PropertyList>
+          <p className="mt-2 text-fg-muted">
+            {configuration
+              ? tr(
+                  "以上为创建会话时提交的配置。模板修改只影响新会话；连接和执行状态以当前会话为准。",
+                )
+              : tr("此历史会话未记录创建时的模板配置。")}
+          </p>
+        </div>
+      </details>
       {files && session && environmentId && (
         <SessionFiles
           sessionId={id}
@@ -232,7 +290,10 @@ export function SessionDetail({
                 </Help>
               </div>
             )}
-            <ListSlot slotId="conversation.input.dock" context={{ sessionId: id, agentId }} />
+            <ListSlot
+              slotId="conversation.input.dock"
+              context={{ sessionId: id, agentId }}
+            />
             <Composer
               taskBrief={machine && !data.turns.length ? brief : undefined}
               onPendingChange={setMessagePending}

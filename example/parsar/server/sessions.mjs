@@ -170,6 +170,24 @@ export function prepareSession(store, id, body) {
     agent_id: agent.id,
     runtime_id: runtime.id,
     pricing: model.pricing,
+    configuration: {
+      agent_name: agent.name,
+      model: model.model,
+      harness: agent.harness,
+      environment: runtime.environment,
+      environment_name: runtime.name,
+      workspace_directory: runtime.workspace_directory,
+      skills: agent.skill_ids.map((id) => ({
+        id,
+        version: agent.skill_versions?.[id] || null,
+      })),
+      mcps: mcps.map((mcp) => mcp.label),
+      capabilities: capabilities.map((row) => ({
+        name: row.name,
+        kind: row.kind,
+        version: row.version,
+      })),
+    },
     created_at: Math.floor(Date.now() / 1000),
     ...(selfHosted
       ? {

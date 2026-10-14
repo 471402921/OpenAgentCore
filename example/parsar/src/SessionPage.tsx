@@ -33,6 +33,7 @@ export function SessionPage({ id }: { id: string }) {
             machine={query.data.self_hosted}
             taskId={query.data.task_id}
             brief={query.data.brief}
+            configuration={query.data.configuration}
           />
         }
       />

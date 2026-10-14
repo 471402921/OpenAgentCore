@@ -1,3 +1,6 @@
+import { useSkills } from "./Skills";
+import { useMCPs } from "./lib/product";
+import { useCapabilities } from "./Capabilities";
 import { AgentMCP } from "./AgentMCP";
 import { tr } from "./lib/i18n";
 import { useState } from "react";
@@ -18,7 +21,7 @@ import {
   type AgentProfile,
 } from "./lib/product";
 import { dateTime } from "./lib/api";
-import { AgentEditor } from "./Agents";
+import { AgentEditor, readAgentDraft } from "./Agents";
 import { NewSession } from "./NewSession";
 import { Button } from "./components/ui/button";
 import { EmptyState } from "./components/ui/empty-state";
@@ -26,10 +29,13 @@ import { Property, PropertyList } from "./components/ui/property-list";
 import { Audit } from "./Records";
 import { ErrorNotice, Help, PageHeader } from "./components/shared";
 export function AgentDetail({ id }: { id: string }) {
-  const [tab, setTab] = useState("activity");
+  const [tab, setTab] = useState("config");
+  const skills = useSkills(),
+    mcps = useMCPs(),
+    capabilities = useCapabilities();
   const models = useModels(),
     runtimes = useRuntimes();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => !!readAgentDraft(id));
   const [creating, setCreating] = useState(false);
   const query = useQuery({
     queryKey: ["agent", id],
@@ -107,12 +113,36 @@ export function AgentDetail({ id }: { id: string }) {
               {models.data?.find((row) => row.id === query.data?.model_id)
                 ?.name || "—"}
             </Property>
-            <Property label={tr("默认运行时")}>
+            <Property label={tr("默认环境模板")}>
               {runtimes.data?.find((row) => row.id === query.data?.runtime_id)
                 ?.name || tr("开始会话时选择")}
             </Property>
-            <Property label="Skills">{query.data.skill_ids.length}</Property>
-            <Property label="MCP">{query.data.mcp_ids.length}</Property>
+            <Property label="Skills">
+              {query.data.skill_ids
+                .map(
+                  (id) =>
+                    `${skills.data?.find((row) => row.id === id)?.name || id} · ${query.data?.skill_versions?.[id] || tr("默认版本")}`,
+                )
+                .join(", ") || "—"}
+            </Property>
+            <Property label="MCP">
+              {query.data.mcp_ids
+                .map(
+                  (id) => mcps.data?.find((row) => row.id === id)?.name || id,
+                )
+                .join(", ") || "—"}
+            </Property>
+            <Property label={tr("能力")}>
+              {query.data.capability_ids
+                ?.map(
+                  (id) =>
+                    `${capabilities.data?.find((row) => row.id === id)?.name || id} · ${query.data?.capability_versions?.[id] || tr("默认版本")}`,
+                )
+                .join(", ") || "—"}
+            </Property>
+            <Property label={tr("业务提问")}>
+              {query.data.ask_user ? tr("已启用") : tr("已停用")}
+            </Property>
           </PropertyList>
           <h2 className="mb-2 mt-6 text-sm font-medium">{tr("指令")}</h2>
           <p className="whitespace-pre-wrap text-sm leading-relaxed">

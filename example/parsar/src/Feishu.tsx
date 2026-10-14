@@ -1,3 +1,4 @@
+import { sessionRestriction } from "../shared/session-profile.mjs";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Dialog,
@@ -374,11 +375,11 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
               ))}
             </Select>
             <Select
-              aria-label={tr("群运行时 {{value0}}", { value0: index + 1 })}
+              aria-label={tr("群环境模板 {{value0}}", { value0: index + 1 })}
               value={route.runtime_id}
               onValueChange={(value) => updateRoute(index, "runtime_id", value)}
             >
-              <SelectOption value="">{tr("选择运行时")}</SelectOption>
+              <SelectOption value="">{tr("使用 Agent 默认环境")}</SelectOption>
               {runtimes.data
                 ?.filter((row) => row.environment !== "self_hosted")
                 .map((row) => (
@@ -388,10 +389,35 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
                 ))}
             </Select>
           </div>
+          {(() => {
+            const agent = agents.data?.find((row) => row.id === route.agent_id);
+            const runtime = runtimes.data?.find(
+              (row) => row.id === (route.runtime_id || agent?.runtime_id),
+            );
+            const issue = !agent
+              ? tr("请选择 Agent")
+              : !runtime
+                ? tr("Agent 未配置有效的默认环境模板。")
+                : runtime.environment === "self_hosted"
+                  ? tr("飞书需要可自动启动的环境，请选择托管沙箱或纯文本环境。")
+                  : sessionRestriction(agent, runtime);
+            return (
+              <p className="mt-2 text-xs text-fg-muted">
+                {issue ||
+                  `${tr("新话题使用")}: ${runtime?.name} · ${route.runtime_id ? tr("为此接入指定") : tr("跟随 Agent 默认环境")}`}
+              </p>
+            );
+          })()}
         </div>
       ))}
       <label className="flex items-center gap-3">
-        <input type="checkbox" checked={form.history_context || false} onChange={(e) => setForm({ ...form, history_context: e.target.checked })} />
+        <input
+          type="checkbox"
+          checked={form.history_context || false}
+          onChange={(e) =>
+            setForm({ ...form, history_context: e.target.checked })
+          }
+        />
         {tr("新话题附带最近群消息（需要历史消息权限）")}
       </label>
       <label className="flex items-center gap-3">

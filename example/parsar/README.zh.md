@@ -1,6 +1,6 @@
 ---
 source: example/parsar/README.md
-source_hash: 338989e9751f7e8f591952448aab083d658b6cdd6a624cfdaae3595ffde1b6b2
+source_hash: c8159276a77b08dcd1b0b342cbe78d8f61d543ea50433bcec5450a8ec67c17b3
 ---
 
 # Parsar 工作空间
@@ -26,9 +26,17 @@ pnpm --filter @oac/parsar-example dev
 
 ## Agent、能力与会话 {#agents-capabilities-and-sessions}
 
+**构建**包含三个入口：**Agent 模板**定义职责，**环境模板**定义在哪里执行，**资源库**提供可复用资源。**接入与设置**包含**飞书接入**与**设置**；网页任务和会话从**工作**与**活动**进入。
+
+Agent 详情默认打开**配置**。编辑器按职责、模型与执行、分类资源、默认环境排列；可在编辑器内添加模型、Skill、MCP 或环境并自动绑定，保留 Agent 草稿。草稿按 Agent 分别保存，可从**未保存的草稿**恢复，在当前浏览器标签页跨导航和刷新保留，直到保存或选择**放弃草稿**，不包含 Provider 密钥。环境列表展示配置和 Agent 引用，实时连接状态属于会话。
+
+会话中的**本次运行**展示公开 Core Session/Environment 引用，以及首次尝试创建时记录的安全配置摘要。重试沿用摘要，之后修改模板不会改写历史。未固定版本的 Skill 标注创建时使用默认版本，不冒充已知的实际版本；旧会话未记录摘要会明确说明。不暴露完整请求或凭据。
+
+飞书环境策略可选**使用 Agent 默认环境**或显式指定托管/纯文本环境模板。继承在新话题创建任务时解析，已有话题保留绑定。默认环境缺失或不支持自动运行时明确拒绝，`/select` 同样验证，不自动回退。
+
 **模型**按 Provider 管理模型 ID。可以读取 Provider 返回 OpenAI 格式的 `GET /v1/models` 列表，也可以手动输入。保存时事务提交 Provider 与所选模型。密钥留在服务端，编辑时留空保留旧值；发现模型仅发送该 Provider 的密钥，不跟随重定向。模型可停用而不删除历史引用。Codex、Claude Code 工作空间会话使用所选 HTTPS Provider 地址、密钥和对应 Harness 协议；纯文本和 MiniMax Code 使用 Core 配置的连接，创建表单会说明区别。不支持的组合会明确报错，具体边界见 [Harness 覆盖清单](../../contracts/agents-api/zh/index.md)。
 
-**能力**包括 Skills、MCP、Plugins、系统提示词和知识：
+**资源库**集中管理供 Agent 模板绑定的模型、Skills、MCP、Plugins、系统提示词、知识和凭据：
 
 - **Skills**支持创建 SKILL.md、上传 ZIP、版本管理、默认版本、Agent 版本固定和有大小限制的文件预览。**浏览目录**搜索 skills.sh 索引，也可直接填写来源仓库和 Skill 名称。服务端使用维护中的固定版本 `skills@1.5.23` CLI 下载至临时目录，再走普通公开 Skill 上传。主机需要 `npx` 和网络连接；导入最多 32 MiB、1,000 个文件。Core 是 Skill 的权威存储。
 - **MCP**保留原服务目录和 HTTPS 端点配置。可绑定公开 Vault/Credential。纯文本运行使用 service origin，工作空间运行使用 environment origin；不生成匿名兼容 Plugin。
@@ -36,9 +44,9 @@ pnpm --filter @oac/parsar-example dev
 - 提示词和知识能力有不可变编号版本、默认版本、固定版本和停用状态。提示词扩展冻结的 Agent 指令，知识版本成为初始工作空间文件。标准 Claude/Codex Plugin ZIP 映射为公开 Environment Plugin，编辑器展示 `.mcp.json` 声明的服务；stdio 所需可执行程序必须存在于运行环境。
 - Plugin 能力可附带最多 1 MiB 的预构建**前端扩展 JavaScript（可选）**。代码只留在 Parsar，不发给 Core。启用的前端扩展以本地页面权限执行，应仅安装可信代码。共享 `window.__PARSAR_PLUGIN_API__` 提供原 Parsar 的 React、`createContext` 和 `definePlugin`。插槽协议位于 [plugin-slots.ts](src/lib/plugin-slots.ts)，支持 `workspace.main`、`workspace.content`、`layout.header.actions`、`layout.nav.bottom`、`conversation.header.actions`、`conversation.input.dock`、`conversation.tool-card` 和 `agent.settings.section`。工具卡匹配器通过 `item` 读取公开 `mcp_call`，不能依赖执行引擎原生数据；其他上下文为插槽传入的 Agent/Session 引用。停用能力会移除已注册 UI。跨工作空间市场发布依赖暂缓的账号/工作空间模型。
 
-**Agents**组合模型、Harness、指令、能力和可选默认运行时。创建、复制、启停、编辑配置不会分配执行资源，修改作用于新会话。可选业务提问使用声明的 `ask_user` 函数，在会话和**收件箱**中显示，通过带稳定请求标识的公开函数结果事件提交回答。这用于补充信息，不是执行审批。
+**Agent 模板**组合模型、Harness、指令、能力和可选默认环境模板。创建、复制、启停、编辑配置不会分配执行资源，修改作用于新会话。可选业务提问使用声明的 `ask_user` 函数，在会话和**收件箱**中显示，通过带稳定请求标识的公开函数结果事件提交回答。这用于补充信息，不是执行审批。
 
-**运行时**配置托管沙箱、纯文本环境或用户机器。托管会话各有工作空间。用户机器选择操作系统、绝对工作目录和可选本地能力目录；界面原样显示公开 Session 安装命令，在目标主机执行、等待公开 Environment 状态已连接后再发送任务。示例不签发机器凭据，也不持有 Core key。每个会话有独立 daemon 安装；相同工作目录共享主机文件，daemon 本身不添加主机沙箱。托管 Skill 和 HTTP MCP 按公开协议支持的组合工作。
+**环境模板**配置托管沙箱、纯文本环境或用户机器。托管会话各有工作空间。用户机器选择操作系统、绝对工作目录和可选本地能力目录；界面原样显示公开 Session 安装命令，在目标主机执行、等待公开 Environment 状态已连接后再发送任务。示例不签发机器凭据，也不持有 Core key。每个会话有独立 daemon 安装；相同工作目录共享主机文件，daemon 本身不添加主机沙箱。托管 Skill 和 HTTP MCP 按公开协议支持的组合工作。
 
 会话支持流式回复、工具步骤折叠、原 Parsar 用户轮次导航、追问、取消和持久化历史回读。草稿及实际观测的请求/首文本耗时保存在当前浏览器标签页。**文件**在空闲时上传不超过 5 MiB 的输入，将路径加入草稿。Artifact 分页下载不依赖当前工作空间在线；可要求 Agent 将产物写入 `./outputs`。下载保持二进制。**对话**通过公开 API 重命名和删除会话；执行中的会话应先停止。
 
@@ -64,7 +72,7 @@ pnpm --filter @oac/parsar-example dev
 
 ## 飞书 {#feishu}
 
-**飞书**支持多个企业/个人机器人、飞书/Lark 区域、配置的群及可选私聊路由。密钥保存在受限本地数据库；官方 SDK 负责鉴权、标准化和长连接，无需公网入站回调。
+**飞书接入**支持多个企业/个人机器人、飞书/Lark 区域、配置的群及可选私聊路由。密钥保存在受限本地数据库；官方 SDK 负责鉴权、标准化和长连接，无需公网入站回调。
 
 1. **添加机器人**可填写已有 **App ID**/**App Secret**，或通过**扫码创建机器人**的设备流程创建应用。轮询支持重启恢复与节流，不公开设备码及最终密钥。创建后默认停用，需配置路由再启用。
 2. 在开发者后台启用机器人、长连接事件投递与 `im.message.receive_v1`，发布应用并拉入群。授权提及消息接收和以机器人身份发送；私聊、消息资源、表情反馈及可选群历史另需对应权限。缺少历史或表情权限不会丢弃已接收任务。

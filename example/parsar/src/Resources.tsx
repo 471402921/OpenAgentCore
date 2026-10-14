@@ -8,6 +8,7 @@ import {
   product,
   useMCPs,
   useRuntimes,
+  useAgents,
   type MCPProfile,
   type RuntimeProfile,
 } from "./lib/product";
@@ -39,7 +40,7 @@ export function Runtimes() {
   return (
     <ResourceList
       kind="runtimes"
-      title={tr("运行时")}
+      title={tr("环境模板")}
       rows={query.data || []}
       error={query.error}
     />
@@ -59,6 +60,7 @@ function ResourceList({
   const [editing, setEditing] = useState<MCPProfile | RuntimeProfile | null>(
     null,
   );
+  const agents = useAgents();
   const [directory, setDirectory] = useState(false),
     [search, setSearch] = useState("");
   const cache = useQueryClient();
@@ -81,7 +83,7 @@ function ResourceList({
                 "配置 HTTPS MCP 服务，可绑定凭据库中的凭据。沙箱和用户机器从工作区连接，纯文本会话从 Core 连接。",
               )
             : tr(
-                "开启会话时选择运行时。用户机器保存平台和工作目录，每个会话单独连接；这里不代表机器在线状态。",
+                "环境模板定义任务在哪里运行。用户机器保存平台和工作目录，每个会话单独连接；连接状态请在会话中查看。",
               )}
         </Help>
         <Button
@@ -222,6 +224,20 @@ function ResourceList({
                         })
                       : tr("Core 托管沙箱")}
               </p>
+              {"environment" in row && (
+                <div className="w-1/4 text-xs text-fg-muted">
+                  <p className="truncate" title={row.workspace_directory}>
+                    {row.workspace_directory || tr("由环境分配工作目录")}
+                  </p>
+                  <p>
+                    {tr("引用此模板的 Agent")}:{" "}
+                    {agents.data
+                      ?.filter((agent) => agent.runtime_id === row.id)
+                      .map((agent) => agent.name)
+                      .join(", ") || "—"}
+                  </p>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -242,12 +258,14 @@ function ResourceList({
     </>
   );
 }
-function ResourceEditor({
+export function ResourceEditor({
   kind,
   title,
   value,
   close,
+  onSaved,
 }: {
+  onSaved?: (id: string) => void;
   kind: string;
   title: string;
   value: MCPProfile | RuntimeProfile;
@@ -260,6 +278,7 @@ function ResourceEditor({
     mutationFn: () => product(`${kind}/${form.id}`, "PUT", form),
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: [kind] });
+      onSaved?.(form.id);
       close();
     },
   });
@@ -282,6 +301,7 @@ function ResourceEditor({
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
+            e.stopPropagation();
             save.mutate();
           }}
         >
