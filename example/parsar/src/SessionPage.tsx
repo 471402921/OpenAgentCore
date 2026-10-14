@@ -1,3 +1,5 @@
+import { SingleSlot } from "./components/plugin/SlotRenderer";
+import { tr } from "./lib/i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { product, type SessionRecord } from "./lib/product";
 import { SessionDetail } from "./SessionDetail";
@@ -17,15 +19,22 @@ export function SessionPage({ id }: { id: string }) {
       void cache.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
+  if (query.data?.deleted_at) return <EmptyState title={tr("此会话已删除")} />;
   if (query.data?.core_session_id)
     return (
-      <SessionDetail
-        key={query.data.core_session_id}
-        id={query.data.core_session_id}
-        agentId={query.data.agent_id}
-        machine={query.data.self_hosted}
-        taskId={query.data.task_id}
-        brief={query.data.brief}
+      <SingleSlot
+        slotId="workspace.content"
+        context={{ session: query.data }}
+        fallback={
+          <SessionDetail
+            key={query.data.core_session_id}
+            id={query.data.core_session_id}
+            agentId={query.data.agent_id}
+            machine={query.data.self_hosted}
+            taskId={query.data.task_id}
+            brief={query.data.brief}
+          />
+        }
       />
     );
   return (
@@ -38,14 +47,16 @@ export function SessionPage({ id }: { id: string }) {
               : `#/agents/${query.data?.agent_id || ""}`
           }
         >
-          {query.data?.task_id ? "返回任务" : "返回 Agent"}
+          {query.data?.task_id ? tr("返回任务") : tr("返回 Agent")}
         </a>
       </Button>
       <ErrorNotice error={query.error || resume.error} />
-      <EmptyState title={query.isPending ? "正在加载…" : "会话创建尚未确认"} />
+      <EmptyState
+        title={query.isPending ? tr("正在加载\u2026") : tr("会话创建尚未确认")}
+      />
       {query.data && (
         <Button disabled={resume.isPending} onClick={() => resume.mutate()}>
-          {resume.isPending ? "恢复中…" : "恢复创建"}
+          {resume.isPending ? tr("恢复中\u2026") : tr("恢复创建")}
         </Button>
       )}
     </div>

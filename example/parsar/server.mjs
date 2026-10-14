@@ -1,3 +1,4 @@
+import { agentMCPHandler } from "./server/agent-mcp.mjs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createServer } from "node:http";
@@ -8,10 +9,18 @@ import { buildDirectory } from "./paths.mjs";
 import { openStore, dataPath, AppError } from "./server/store.mjs";
 import { productAPI } from "./server/product.mjs";
 import { scheduleWorker } from "./server/schedules.mjs";
-import { feishuWorker, createFeishuTransport } from "./server/feishu.mjs";
+import { createFeishuTransport, feishuWorkers } from "./server/feishu.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const routes = [
+  [/^\/v1\/agents\/sessions$/, ["GET"]],
+  [/^\/v1\/vaults$/, ["GET", "POST"]],
+  [/^\/v1\/vaults\/[a-f0-9-]{36}$/, ["GET", "DELETE"]],
+  [/^\/v1\/vaults\/[a-f0-9-]{36}\/credentials$/, ["GET", "POST"]],
+  [
+    /^\/v1\/vaults\/[a-f0-9-]{36}\/credentials\/[a-f0-9-]{36}$/,
+    ["GET", "POST", "DELETE"],
+  ],
   [/^\/v1\/agents\/environments\/[a-f0-9-]{36}$/, ["GET"]],
   [/^\/v1\/agents\/environments\/[a-f0-9-]{36}\/files$/, ["GET", "POST"]],
   [/^\/v1\/agents\/sessions\/[a-f0-9-]{36}\/artifacts$/, ["GET"]],
@@ -26,6 +35,10 @@ const routes = [
   [/^\/v1\/agents\/[a-f0-9-]{36}$/, ["GET", "POST"]],
 ];
 routes.push(
+  [
+    /^\/v1\/skills\/skill_[A-Za-z0-9][A-Za-z0-9_-]{0,127}\/versions\/[1-9][0-9]*\/content$/,
+    ["GET"],
+  ],
   [/^\/v1\/skills$/, ["GET", "POST"]],
   [
     /^\/v1\/skills\/skill_[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/,
@@ -115,7 +128,15 @@ export function createHandler(
 ) {
   const product =
     productHandler ||
-    (store && productAPI(store, coreClient(config, fetchImpl), fetchImpl));
+    (store &&
+      productAPI(
+        store,
+        coreClient(config, fetchImpl),
+        fetchImpl,
+        `http://127.0.0.1:${config.port}`,
+      ));
+  const agentMCP =
+    store && agentMCPHandler(store, coreClient(config, fetchImpl), product);
   return async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
@@ -124,7 +145,8 @@ export function createHandler(
       !hosts.includes(req.headers.host) ||
       (req.headers.origin &&
         req.headers.origin !== `http://${req.headers.host}`) ||
-      req.headers["sec-fetch-site"] === "cross-site"
+      (req.headers["sec-fetch-site"] === "cross-site" &&
+        !(req.method === "GET" && req.url.split("?")[0] === "/oauth/callback"))
     ) {
       return fail(
         res,
@@ -133,6 +155,44 @@ export function createHandler(
       );
     }
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const mcpMatch = url.pathname.match(/^\/mcp\/agents\/([a-f0-9-]{36})$/);
+    if (mcpMatch && agentMCP) {
+      try {
+        const chunks = [];
+        let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 1024 * 1024) return fail(res, 413, "Request too large.");
+          chunks.push(chunk);
+        }
+        const body = size ? JSON.parse(Buffer.concat(chunks)) : undefined;
+        await agentMCP(mcpMatch[1], req, res, body);
+      } catch {
+        if (!res.headersSent) fail(res, 400, "Invalid MCP request.");
+        else res.destroy();
+      }
+      return;
+    }
+
+    const clientMatch = url.pathname.match(
+      /^\/app\/capabilities\/([a-f0-9-]{36})\/client.js$/,
+    );
+    if (clientMatch && req.method === "GET" && store) {
+      const capability = store.get("capabilities", clientMatch[1]);
+      const bundle =
+        capability &&
+        !capability.deprecated &&
+        capability.versions.find(
+          (row) => row.version === capability.default_version,
+        )?.client_bundle;
+      if (!bundle) return fail(res, 404, "Plugin client not found.");
+      res.writeHead(200, {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(bundle);
+      return;
+    }
     if (url.pathname.startsWith("/app/")) {
       if (
         req.method !== "GET" &&
@@ -149,7 +209,13 @@ export function createHandler(
         let size = 0;
         for await (const chunk of req) {
           size += chunk.length;
-          if (size > 1024 * 1024) return fail(res, 413, "Request too large.");
+          if (
+            size >
+            (url.pathname.startsWith("/app/capabilities/")
+              ? 45 * 1024 * 1024
+              : 1024 * 1024)
+          )
+            return fail(res, 413, "Request too large.");
           chunks.push(chunk);
         }
         let body = {};
@@ -272,6 +338,10 @@ export function createHandler(
           clearTimeout(timer);
           res.writeHead(upstream.status, {
             "Content-Type": "application/octet-stream",
+            ...(upstream.headers.has("content-length") &&
+            !upstream.headers.has("content-encoding")
+              ? { "Content-Length": upstream.headers.get("content-length") }
+              : {}),
             "Content-Disposition":
               upstream.headers.get("content-disposition") || "attachment",
             "Cache-Control": "no-store",
@@ -346,8 +416,13 @@ if (
     : undefined;
   const store = openStore(dataPath(config));
   const core = coreClient(config);
-  const productHandler = productAPI(store, core);
-  const feishu = feishuWorker(
+  const productHandler = productAPI(
+    store,
+    core,
+    fetch,
+    `http://127.0.0.1:${config.port}`,
+  );
+  const feishu = feishuWorkers(
     store,
     core,
     productHandler,

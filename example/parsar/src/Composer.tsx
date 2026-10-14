@@ -1,3 +1,4 @@
+import { tr } from "./lib/i18n";
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,7 +10,6 @@ import { ArrowUp, Square } from "lucide-react";
 import { beginTiming, requestReturned } from "./lib/session-timing";
 import { api } from "./lib/api";
 import { ErrorNotice } from "./components/shared";
-
 export function Composer({
   session,
   taskBrief,
@@ -27,15 +27,16 @@ export function Composer({
 }) {
   const cache = useQueryClient();
   const storageKey = `oac-example-message-${session.id}`;
-  const [pending, setPending] = useState<{ key: string; text: string } | null>(
-    () => {
-      try {
-        return JSON.parse(sessionStorage.getItem(storageKey) || "null");
-      } catch {
-        return null;
-      }
-    },
-  );
+  const [pending, setPending] = useState<{
+    key: string;
+    text: string;
+  } | null>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(storageKey) || "null");
+    } catch {
+      return null;
+    }
+  });
   useEffect(() => {
     onPendingChange?.(Boolean(pending));
   }, [pending, onPendingChange]);
@@ -49,9 +50,12 @@ export function Composer({
   }, [draftKey, text]);
   useEffect(() => {
     if (attachment)
-      setText(
-        (previous) =>
-          `${previous}${previous ? "\n" : ""}请处理文件：${attachment}`,
+      setText((previous) =>
+        tr("{{value0}}{{value1}}请处理文件：{{value2}}", {
+          value0: previous,
+          value1: previous ? "\n" : "",
+          value2: attachment,
+        }),
       );
   }, [attachment]);
   const [cancelKey, setCancelKey] = useState(createIdempotencyKey);
@@ -113,10 +117,21 @@ export function Composer({
       <ErrorNotice error={send.error || cancel.error} />
       {cancelRequested && running && (
         <p role="status" className="pb-3 text-base">
-          已请求取消，等待执行结束。
+          {tr("已请求取消，等待执行结束。")}
         </p>
       )}
-      {taskBrief && <button className="mb-3 text-sm underline" onClick={() => { if (!text || confirm("用任务说明替换当前草稿？")) setText(taskBrief); }} disabled={!!pending || running || send.isPending}>填入任务说明，连接后发送</button>}
+      {taskBrief && (
+        <button
+          className="mb-3 text-sm underline"
+          onClick={() => {
+            if (!text || confirm(tr("用任务说明替换当前草稿？")))
+              setText(taskBrief);
+          }}
+          disabled={!!pending || running || send.isPending}
+        >
+          {tr("填入任务说明，连接后发送")}
+        </button>
+      )}
       <form
         className="rounded-2xl bg-surface-muted p-4 focus-within:ring-1 focus-within:ring-line-strong"
         onSubmit={(e) => {
@@ -126,7 +141,7 @@ export function Composer({
         }}
       >
         <textarea
-          aria-label="继续对话"
+          aria-label={tr("继续对话")}
           rows={3}
           value={text}
           disabled={
@@ -138,10 +153,10 @@ export function Composer({
           onChange={(e) => setText(e.target.value)}
           placeholder={
             running
-              ? "Agent 执行中"
+              ? tr("Agent 执行中")
               : session.status === "failed"
-                ? "当前会话已失败，请返回会话列表新建会话"
-                : "继续描述你的想法…"
+                ? tr("当前会话已失败，请返回会话列表新建会话")
+                : tr("继续描述你的想法\u2026")
           }
           className="block w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-fg-muted disabled:opacity-60"
         />
@@ -149,7 +164,7 @@ export function Composer({
           {running ? (
             <button
               type="button"
-              aria-label="取消执行"
+              aria-label={tr("取消执行")}
               disabled={cancel.isPending || cancelRequested}
               onClick={() => cancel.mutate()}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-emphasis text-fg-on-emphasis disabled:opacity-40"
@@ -159,7 +174,7 @@ export function Composer({
           ) : (
             <button
               type="submit"
-              aria-label={pending ? "重试发送" : "发送"}
+              aria-label={pending ? tr("重试发送") : tr("发送")}
               disabled={
                 connectionPending ||
                 !text.trim() ||

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { AppError, text, uuid } from "./store.mjs";
-import { prepareSession, requireSessionSettled } from "./sessions.mjs";
+import {
+  prepareSession,
+  requireSessionSettled,
+  requireAutomaticRuntime,
+} from "./sessions.mjs";
 
 import { taskStatuses, taskPriorities } from "../shared/work-profile.mjs";
 const statuses = Object.keys(taskStatuses);
@@ -71,6 +75,7 @@ export function workAPI(store, core, sessions) {
       const input = [
         `Task: ${task.name}`,
         task.description,
+        body.comment ? `Task comment: ${body.comment}` : "",
         project ? `Project: ${project.name}\n${project.description}` : "",
         project?.repository ? `Repository: ${project.repository}` : "",
         "Deliver the requested work, describe verification and unresolved blockers. Save deliverable files under ./outputs when a workspace is available. Human review decides whether this task is complete.",
@@ -82,6 +87,8 @@ export function workAPI(store, core, sessions) {
         agent_id: task.agent_id,
         runtime_id: task.runtime_id,
         input,
+        images: body.images,
+        files: body.files,
       });
       row.task_id = taskId;
       // This is a frozen product brief, not a duplicate of execution history.
@@ -136,19 +143,81 @@ export function workAPI(store, core, sessions) {
         if (
           old.task_id !== id ||
           old.type !== "comment" ||
-          old.message !== message
+          old.message !== message ||
+          !!old.notify_agent !== !!body.notify_agent
         )
           throw new AppError(409, "评论标识已被使用。");
-        return old;
+        if (!old.notify_agent || old.delivery === "sent") return old;
       }
-      const comment = {
+      let comment = old || {
         id: operationId,
         task_id: id,
         type: "comment",
+        notify_agent: body.notify_agent === true,
+        delivery: body.notify_agent === true ? "pending" : undefined,
         message,
         created_at: now(),
       };
       store.put("activity", comment);
+      if (comment.notify_agent && comment.delivery !== "sent") {
+        try {
+          const task = requireRow("tasks", id);
+          const agent = store.get("agents", task.agent_id);
+          if (!agent || agent.enabled === false)
+            throw new AppError(400, "请先分配一个已启用的 Agent。");
+          let run = comment.session_id
+            ? store.get("sessions", comment.session_id)
+            : runs(id).find(
+                (row) => !row.deleted_at && row.agent_id === task.agent_id,
+              );
+          if (!run) {
+            requireAutomaticRuntime(store, task.runtime_id);
+            // The comment UUID is also the creation key. A retry recovers the
+            // frozen task+comment request instead of starting another Session.
+            comment = { ...comment, session_id: operationId, initial: true };
+            store.put("activity", comment);
+            run = await dispatch(id, operationId, {
+              revision: task.revision,
+              comment: message,
+            });
+          } else {
+            comment = { ...comment, session_id: run.id };
+            store.put("activity", comment);
+            if (!run.core_session_id) run = await sessions(run.id, {});
+            if (!comment.initial)
+              await core(
+                `/v1/agents/sessions/${run.core_session_id}/events`,
+                "POST",
+                {
+                  events: [
+                    {
+                      type: "agent.session.input.message",
+                      input: [
+                        {
+                          type: "message",
+                          role: "user",
+                          content: [{ type: "input_text", text: message }],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                operationId,
+              );
+          }
+          comment = { ...comment, delivery: "sent", delivery_error: undefined };
+          store.put("activity", comment);
+        } catch (error) {
+          store.put("activity", {
+            ...comment,
+            delivery_error:
+              error instanceof AppError
+                ? error.message
+                : "发送尚未确认，可重试原评论。",
+          });
+          throw error;
+        }
+      }
       return comment;
     }
     if (method === "GET") return id ? requireRow(kind, id) : store.list(kind);
@@ -162,8 +231,9 @@ export function workAPI(store, core, sessions) {
         kind === "projects" &&
         (store.list("tasks").some((row) => row.project_id === id) ||
           store
-            .get("feishu", "settings")
-            ?.routes.some((row) => row.project_id === id))
+            .list("feishu_bots")
+            .flatMap((bot) => bot.routes)
+            .some((row) => row.project_id === id))
       )
         throw new AppError(409, "项目仍有任务，请先移动或删除任务。");
       if (

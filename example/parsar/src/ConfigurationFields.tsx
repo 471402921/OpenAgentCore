@@ -1,7 +1,12 @@
+import { useQuery } from "@tanstack/react-query";
+import { api, readHistory } from "./lib/api";
+import { tr } from "./lib/i18n";
+import { useCapabilities } from "./Capabilities";
 import {
   useModels,
   useProviders,
   useMCPs,
+  useRuntimes,
   type AgentProfile,
 } from "./lib/product";
 import { useSkills } from "./Skills";
@@ -10,7 +15,17 @@ import { Textarea } from "./components/ui/textarea";
 import { ErrorNotice, Field, Help } from "./components/shared";
 export type Configuration = Pick<
   AgentProfile,
-  "model_id" | "harness" | "instructions" | "skill_ids" | "mcp_ids"
+  | "model_id"
+  | "harness"
+  | "instructions"
+  | "skill_ids"
+  | "skill_versions"
+  | "mcp_ids"
+  | "runtime_id"
+  | "enabled"
+  | "ask_user"
+  | "capability_ids"
+  | "capability_versions"
 >;
 export const emptyConfiguration: Configuration = {
   model_id: "",
@@ -26,6 +41,8 @@ export function ConfigurationFields({
   value: Configuration;
   change: (value: Configuration) => void;
 }) {
+  const capabilities = useCapabilities(),
+    runtimes = useRuntimes();
   const models = useModels();
   const providers = useProviders();
   const skills = useSkills();
@@ -37,19 +54,49 @@ export function ConfigurationFields({
     });
   return (
     <>
-      <Field label="模型" id="config-model">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={value.enabled !== false}
+          onChange={(e) => change({ ...value, enabled: e.target.checked })}
+        />
+        {tr("启用 Agent")}
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={!!value.ask_user}
+          onChange={(e) => change({ ...value, ask_user: e.target.checked })}
+        />
+        {tr("允许 Agent 提问业务信息（不用于执行审批）")}
+      </label>
+      <Field label={tr("默认运行时")} id="config-runtime">
+        <Select
+          id="config-runtime"
+          value={value.runtime_id || ""}
+          onValueChange={(runtime_id) => change({ ...value, runtime_id })}
+        >
+          <SelectOption value="">{tr("开始会话时选择")}</SelectOption>
+          {runtimes.data?.map((row) => (
+            <SelectOption key={row.id} value={row.id}>
+              {row.name}
+            </SelectOption>
+          ))}
+        </Select>
+      </Field>
+      <Field label={tr("模型")} id="config-model">
         <Select
           id="config-model"
           value={value.model_id}
           onValueChange={(model_id) => change({ ...value, model_id })}
         >
-          <SelectOption value="">选择模型</SelectOption>
+          <SelectOption value="">{tr("选择模型")}</SelectOption>
           {providers.data?.flatMap(
             (provider) =>
               models.data
                 ?.filter((model) => model.provider_id === provider.id)
                 .map((model) => (
-                  <SelectOption key={model.id} value={model.id}>
+                  <SelectOption key={model.id} value={model.id} disabled={model.enabled === false}>
                     {provider.name} / {model.name}
                   </SelectOption>
                 )) || [],
@@ -57,11 +104,11 @@ export function ConfigurationFields({
         </Select>
         {!models.isPending && !models.data?.length && (
           <a href="#/models" className="inline-block text-base underline">
-            前往添加模型
+            {tr("前往添加模型")}
           </a>
         )}
       </Field>
-      <Field label="执行引擎" id="config-harness">
+      <Field label={tr("执行引擎")} id="config-harness">
         <Select
           id="config-harness"
           value={value.harness}
@@ -74,7 +121,7 @@ export function ConfigurationFields({
           <SelectOption value="mcode">MiniMax Code</SelectOption>
         </Select>
       </Field>
-      <Field label="指令" id="config-instructions">
+      <Field label={tr("指令")} id="config-instructions">
         <Textarea
           id="config-instructions"
           rows={6}
@@ -93,8 +140,12 @@ export function ConfigurationFields({
             <h3 className="text-base font-medium">{group.label}</h3>
             <Help>
               {group.key === "skill_ids"
-                ? "最多选择 8 个技能，运行时需支持托管沙箱。新会话使用技能的默认版本。"
-                : "最多选择 8 个 MCP。托管会话从工作区连接，纯文本会话从 Core 连接；用户机器请在本地 Plugin 中配置。"}
+                ? tr(
+                    "最多选择 8 个技能，可使用默认版本或固定版本。托管沙箱和用户机器支持技能。",
+                  )
+                : tr(
+                    "最多选择 8 个 MCP。沙箱和用户机器从工作区连接，纯文本会话从 Core 连接。",
+                  )}
             </Help>
           </div>
           <div className="max-h-48 space-y-2 overflow-auto">
@@ -113,6 +164,23 @@ export function ConfigurationFields({
                   onChange={(e) => toggle(group.key, row.id, e.target.checked)}
                 />
                 {row.name}
+                {group.key === "skill_ids" &&
+                  value.skill_ids.includes(row.id) && (
+                    <SkillVersionSelect
+                      id={row.id}
+                      name={row.name}
+                      value={value.skill_versions?.[row.id] || ""}
+                      change={(version) =>
+                        change({
+                          ...value,
+                          skill_versions: {
+                            ...value.skill_versions,
+                            [row.id]: version,
+                          },
+                        })
+                      }
+                    />
+                  )}
               </label>
             ))}
             {value[group.key]
@@ -126,18 +194,113 @@ export function ConfigurationFields({
                     checked
                     onChange={() => toggle(group.key, id, false)}
                   />
-                  不可用资源 {id}
+                  {tr("不可用资源")}
+                  {id}
                 </label>
               ))}
             {group.rows?.length === 0 && (
-              <p className="text-base text-fg-muted">尚未添加{group.label}</p>
+              <p className="text-base text-fg-muted">
+                {tr("尚未添加")}
+                {group.label}
+              </p>
             )}
           </div>
         </section>
       ))}
+      <section className="space-y-2">
+        <h3 className="text-base font-medium">
+          {tr("Plugins / 系统提示词 / 知识")}
+        </h3>
+        {capabilities.data?.map((row) => (
+          <div
+            className="flex items-center gap-3 border-b border-line py-2"
+            key={row.id}
+          >
+            <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={value.capability_ids?.includes(row.id) || false}
+                onChange={(e) =>
+                  change({
+                    ...value,
+                    capability_ids: e.target.checked
+                      ? [...(value.capability_ids || []), row.id]
+                      : value.capability_ids?.filter((id) => id !== row.id),
+                  })
+                }
+              />
+              {row.name}
+              {row.deprecated ? tr("（已停用）") : ""}
+            </label>
+            {value.capability_ids?.includes(row.id) && (
+              <Select
+                aria-label={tr("{{value0}} 版本", { value0: row.name })}
+                value={value.capability_versions?.[row.id] || ""}
+                onValueChange={(version) =>
+                  change({
+                    ...value,
+                    capability_versions: {
+                      ...value.capability_versions,
+                      [row.id]: version,
+                    },
+                  })
+                }
+              >
+                <SelectOption value="">{tr("默认版本")}</SelectOption>
+                {row.versions.map((version) => (
+                  <SelectOption key={version.version} value={version.version}>
+                    v{version.version}
+                  </SelectOption>
+                ))}
+              </Select>
+            )}
+          </div>
+        ))}
+      </section>
       <ErrorNotice
-        error={providers.error || models.error || skills.error || mcps.error}
+        error={
+          providers.error ||
+          models.error ||
+          skills.error ||
+          mcps.error ||
+          capabilities.error ||
+          runtimes.error
+        }
       />
     </>
+  );
+}
+function SkillVersionSelect({
+  id,
+  name,
+  value,
+  change,
+}: {
+  id: string;
+  name: string;
+  value: string;
+  change: (version: string) => void;
+}) {
+  const versions = useQuery({
+    queryKey: ["skill-versions", id],
+    queryFn: ({ signal }) =>
+      readHistory((options) => api.listSkillVersions(id, options), signal),
+  });
+  return (
+    <div className="ml-auto">
+      <Select
+        aria-label={`${name} ${tr("版本")}`}
+        value={value}
+        onValueChange={change}
+      >
+        <SelectOption value="">{tr("默认版本")}</SelectOption>
+        {versions.data?.map((row) => (
+          <SelectOption key={row.id} value={row.version}>
+            v{row.version}
+          </SelectOption>
+        ))}
+      </Select>
+      <ErrorNotice error={versions.error} />
+    </div>
   );
 }

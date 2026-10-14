@@ -1,3 +1,9 @@
+import { agentMCPTokenAPI } from "./agent-mcp.mjs";
+import { mcpOAuthAPI } from "./mcp-oauth.mjs";
+import { previewRegistrySkill } from "./skills-directory.mjs";
+import { feishuRegistrationAPI } from "./feishu-registration.mjs";
+import { capabilityAPI } from "./capabilities.mjs";
+import { randomUUID } from "node:crypto";
 import { providerAPI, publicProvider } from "./providers.mjs";
 import { runtimeProfile } from "./runtime-profile.mjs";
 import { scheduleAPI } from "./schedules.mjs";
@@ -14,7 +20,7 @@ const kinds = new Set([
   "agents",
   "sessions",
 ]);
-export function productAPI(store, core, fetchImpl = fetch) {
+export function productAPI(store, core, fetchImpl = fetch, origin) {
   // Preserve earlier example configurations without fabricating execution records.
   for (const kind of ["templates", "instances"]) {
     for (const row of store.list(kind)) {
@@ -52,8 +58,12 @@ export function productAPI(store, core, fetchImpl = fetch) {
     }
     return row;
   };
+  const capabilities = capabilityAPI(store);
+  const mcpTokens = agentMCPTokenAPI(store);
+  const oauth = mcpOAuthAPI(store, core, origin, fetchImpl);
   const schedules = scheduleAPI(store);
   const feishu = feishuAPI(store);
+  const registration = feishuRegistrationAPI(store, fetchImpl);
   const work = workAPI(store, core, sessions);
   const providers = providerAPI(store, fetchImpl);
   const touchProviders = (...ids) => {
@@ -76,9 +86,38 @@ export function productAPI(store, core, fetchImpl = fetch) {
       throw new AppError(400, "最多选择 8 个资源。");
     return [...new Set(ids.map((id) => requireReference(kind, id)))];
   };
-  return async (method, path, body) => {
+  const handle = async (method, path, body) => {
+    if (/^\/app\/agents\/[^/]+\/mcp-token$/.test(path))
+      return mcpTokens(method, path);
+    if (path.startsWith("/app/mcp-oauth/")) return oauth(method, path, body);
+    if (path === "/app/capabilities" || path.startsWith("/app/capabilities/"))
+      return capabilities(method, path, body);
+    if (path === "/app/settings") {
+      const old = store.get("settings", "workspace") || {
+        id: "workspace",
+        name: "Parsar",
+        revision: 0,
+      };
+      if (method === "GET") return old;
+      if (method !== "PUT") throw new AppError(405, "Method not allowed.");
+      if (body.revision !== old.revision)
+        throw new AppError(409, "设置已更新，请重新加载。");
+      const value = {
+        ...old,
+        name: text(body.name, "名称", 80, true),
+        revision: old.revision + 1,
+      };
+      store.put("settings", value);
+      return value;
+    }
+    if (path === "/app/audit" && method === "GET")
+      return store.list("audit").sort((a, b) => b.created_at - a.created_at);
     if (path === "/app/schedules" || path.startsWith("/app/schedules/"))
       return schedules(method, path, body);
+    if (path === "/app/skills/registry/preview" && method === "POST")
+      return previewRegistrySkill(body);
+    if (path.startsWith("/app/feishu/provision/"))
+      return registration(method, path, body);
     if (path === "/app/feishu" || path.startsWith("/app/feishu/"))
       return feishu(method, path, body);
     if (/^\/app\/(projects|tasks)(?:\/|$)/.test(path))
@@ -90,7 +129,31 @@ export function productAPI(store, core, fetchImpl = fetch) {
       throw new AppError(404, "Not found.");
     const [, kind, id] = match;
     if (method === "GET") {
-      if (!id) return store.list(kind).map((row) => publicRow(kind, row));
+      if (!id) {
+        const sources =
+          kind === "sessions"
+            ? new Map([
+                ...store
+                  .list("feishu_threads")
+                  .map((row) => [row.session_id, "feishu"]),
+                ...store.list("agent_mcp_runs").map((row) => [row.id, "mcp"]),
+                ...store
+                  .list("schedule_occurrences")
+                  .map((row) => [row.session_id, "schedule"]),
+              ])
+            : null;
+        return store
+          .list(kind)
+          .filter((row) => kind !== "sessions" || !row.deleted_at)
+          .map((row) => ({
+            ...publicRow(kind, row),
+            ...(sources
+              ? {
+                  source: sources.get(row.id) || (row.task_id ? "task" : "web"),
+                }
+              : {}),
+          }));
+      }
       const value = store.get(kind, id);
       if (!value) throw new AppError(404, "记录不存在。");
       return kind === "providers"
@@ -104,6 +167,32 @@ export function productAPI(store, core, fetchImpl = fetch) {
     }
     if (!id) throw new AppError(405, "Method not allowed.");
     if (kind === "sessions") {
+      if (["PATCH", "DELETE"].includes(method)) {
+        const row = store.get("sessions", id);
+        if (!row || row.deleted_at) throw new AppError(404, "会话不存在。");
+        if (!row.core_session_id)
+          throw new AppError(409, "请先恢复创建，以确认实际会话。");
+        if (method === "PATCH") {
+          const name = text(body.name, "名称", 80, true);
+          const current = await core(
+            `/v1/agents/sessions/${row.core_session_id}`,
+            "GET",
+          );
+          await core(`/v1/agents/sessions/${row.core_session_id}`, "POST", {
+            metadata: { ...current.metadata, title: name },
+          });
+          const updated = { ...row, name };
+          store.put("sessions", updated);
+          return publicRow("sessions", updated);
+        }
+        try {
+          await core(`/v1/agents/sessions/${row.core_session_id}`, "DELETE");
+        } catch (error) {
+          if (!(error instanceof AppError && error.status === 404)) throw error;
+        }
+        store.put("sessions", { ...row, deleted_at: Date.now() });
+        return { deleted: true };
+      }
       if (method !== "PUT") throw new AppError(405, "Method not allowed.");
       return sessions(id, body);
     }
@@ -111,17 +200,21 @@ export function productAPI(store, core, fetchImpl = fetch) {
     if (method === "DELETE") {
       const used =
         store
-          .get("feishu", "settings")
-          ?.routes.some(
-            (row) => row.agent_id === id || row.runtime_id === id,
-          ) ||
+          .list("feishu_bots")
+          .flatMap((bot) => bot.routes)
+          .some((row) => row.agent_id === id || row.runtime_id === id) ||
         store
           .list("tasks")
           .some((row) => row.agent_id === id || row.runtime_id === id) ||
         store.list("models").some((row) => row.provider_id === id) ||
         store
           .list("agents")
-          .some((row) => row.model_id === id || row.mcp_ids.includes(id)) ||
+          .some(
+            (row) =>
+              row.model_id === id ||
+              row.runtime_id === id ||
+              row.mcp_ids.includes(id),
+          ) ||
         store
           .list("sessions")
           .some((row) => row.agent_id === id || row.runtime_id === id);
@@ -147,6 +240,24 @@ export function productAPI(store, core, fetchImpl = fetch) {
       revision: (previous?.revision || 0) + 1,
     };
     if (kind === "models") {
+      value.enabled = body.enabled !== false;
+      if (body.pricing !== undefined) {
+        if (
+          !body.pricing ||
+          ![body.pricing.input, body.pricing.output].every(
+            (price) =>
+              typeof price === "number" &&
+              Number.isFinite(price) &&
+              price >= 0 &&
+              price <= 1000000,
+          )
+        )
+          throw new AppError(400, "价格需为非负的每百万 Token 美元金额。");
+        value.pricing = {
+          input: body.pricing.input,
+          output: body.pricing.output,
+        };
+      }
       value.model = text(body.model, "模型 ID", 200, true).trim();
       value.provider_id = requireReference("providers", body.provider_id);
       if (
@@ -177,6 +288,15 @@ export function productAPI(store, core, fetchImpl = fetch) {
       )
         throw new AppError(400, "MCP 使用不含凭据的 HTTPS 地址。");
       value.url = url.href;
+      if (body.vault_id && !uuid.test(body.vault_id))
+        throw new AppError(400, "凭据库标识无效。");
+      if (
+        body.credential_id &&
+        (!body.vault_id || !uuid.test(body.credential_id))
+      )
+        throw new AppError(400, "凭据标识无效。");
+      value.vault_id = body.vault_id || "";
+      value.credential_id = body.credential_id || "";
       value.label = text(body.label, "MCP 标识", 64, true);
       if (!/^[a-zA-Z0-9_-]+$/.test(value.label))
         throw new AppError(400, "MCP 标识仅支持字母、数字、下划线和连字符。");
@@ -190,6 +310,29 @@ export function productAPI(store, core, fetchImpl = fetch) {
         throw new AppError(400, "请选择执行引擎。");
       value.harness = body.harness;
       value.instructions = text(body.instructions, "指令", 100000);
+      value.enabled = body.enabled !== false;
+      value.ask_user = body.ask_user === true;
+      if (value.ask_user && body.harness === "mcode")
+        throw new AppError(400, "MiniMax Code 尚不支持公开 Function 工具。");
+      value.runtime_id = body.runtime_id
+        ? requireReference("runtimes", body.runtime_id)
+        : "";
+      value.capability_ids = references(
+        "capabilities",
+        body.capability_ids || [],
+      );
+      value.capability_versions = {};
+      for (const capabilityId of value.capability_ids) {
+        const version = body.capability_versions?.[capabilityId];
+        if (
+          version &&
+          !store
+            .get("capabilities", capabilityId)
+            .versions.some((row) => row.version === version)
+        )
+          throw new AppError(400, "能力版本不存在。");
+        if (version) value.capability_versions[capabilityId] = version;
+      }
       value.mcp_ids = references("mcps", body.mcp_ids);
       if (
         !Array.isArray(body.skill_ids) ||
@@ -202,6 +345,24 @@ export function productAPI(store, core, fetchImpl = fetch) {
       )
         throw new AppError(400, "技能配置无效。");
       value.skill_ids = [...new Set(body.skill_ids)];
+      value.skill_versions = {};
+      if (
+        body.skill_versions !== undefined &&
+        (!body.skill_versions ||
+          typeof body.skill_versions !== "object" ||
+          Array.isArray(body.skill_versions))
+      )
+        throw new AppError(400, "技能版本配置无效。");
+      for (const skillId of value.skill_ids) {
+        const version = body.skill_versions?.[skillId];
+        if (
+          version !== undefined &&
+          version !== "" &&
+          (typeof version !== "string" || !/^[1-9][0-9]*$/.test(version))
+        )
+          throw new AppError(400, "技能版本无效。");
+        if (version) value.skill_versions[skillId] = version;
+      }
     }
     store.transaction(() => {
       store.put(kind, value);
@@ -209,5 +370,16 @@ export function productAPI(store, core, fetchImpl = fetch) {
         touchProviders(previous?.provider_id, value.provider_id);
     });
     return value;
+  };
+  return async (method, path, body) => {
+    const result = await handle(method, path, body);
+    if (method !== "GET")
+      store.put("audit", {
+        id: randomUUID(),
+        method,
+        path,
+        created_at: Date.now(),
+      });
+    return result;
   };
 }

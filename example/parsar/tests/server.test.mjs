@@ -161,7 +161,6 @@ test("SSE forwards chunks before completion and aborts upstream when the browser
   await disconnected;
 });
 
-
 test("workspace uploads allow bounded inline files and artifact downloads preserve binary bytes", async (t) => {
   const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const binary = new Uint8Array([0, 255, 128, 13, 10]);
@@ -173,23 +172,43 @@ test("workspace uploads allow bounded inline files and artifact downloads preser
       assert.ok(init.body.length > 1024 * 1024);
       return Response.json({ ok: true }, { status: 201 });
     }
-    return new Response(binary, { headers: { "Content-Type": "text/html", "Content-Disposition": 'attachment; filename="report.bin"' } });
+    return new Response(binary, {
+      headers: {
+        "Content-Type": "text/html",
+        "Content-Disposition": 'attachment; filename="report.bin"',
+      },
+    });
   });
   const uploaded = await fetch(`${url}/v1/agents/environments/${id}/files`, {
-    method: "POST", headers: { origin: url, "content-type": "application/json" },
-    body: JSON.stringify({ type: "inline", path: "/workspace/inputs/a", data: Buffer.alloc(1024 * 1024).toString("base64") }),
+    method: "POST",
+    headers: { origin: url, "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "inline",
+      path: "/workspace/inputs/a",
+      data: Buffer.alloc(1024 * 1024).toString("base64"),
+    }),
   });
   assert.equal(uploaded.status, 201);
   const tooLarge = await fetch(`${url}/v1/agents/environments/${id}/files`, {
-    method: "POST", headers: { origin: url }, body: "x".repeat(8 * 1024 * 1024 + 1),
+    method: "POST",
+    headers: { origin: url },
+    body: "x".repeat(8 * 1024 * 1024 + 1),
   });
   assert.equal(tooLarge.status, 413);
   assert.equal(writes, 1);
-  const download = await fetch(`${url}/v1/agents/sessions/${id}/artifacts/${id}/content`);
-  assert.equal(download.headers.get("content-type"), "application/octet-stream");
+  const download = await fetch(
+    `${url}/v1/agents/sessions/${id}/artifacts/${id}/content`,
+  );
+  assert.equal(
+    download.headers.get("content-type"),
+    "application/octet-stream",
+  );
   assert.match(download.headers.get("content-disposition"), /^attachment/);
   assert.deepEqual(new Uint8Array(await download.arrayBuffer()), binary);
-  const denied = await fetch(`${url}/v1/agents/sessions/${id}/artifacts/${id}/content`, { headers: { origin: "https://other.example" } });
+  const denied = await fetch(
+    `${url}/v1/agents/sessions/${id}/artifacts/${id}/content`,
+    { headers: { origin: "https://other.example" } },
+  );
   assert.equal(denied.status, 403);
 });
 
@@ -208,4 +227,52 @@ test("file writes can finish beyond the ordinary proxy timeout", async (t) => {
     },
   );
   assert.equal(response.status, 200);
+});
+
+test("OAuth callback navigation serves only the local frontend while cross-site API access stays forbidden", async (t) => {
+  let frontend = 0;
+  const config = { port: 0, key: "secret", target: "https://core.example" };
+  const server = createServer(
+    createHandler(config, {
+      frontend: (_req, res) => {
+        frontend++;
+        res.end("callback page");
+      },
+    }),
+  );
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  config.port = server.address().port;
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  const origin = `http://127.0.0.1:${config.port}`;
+  const response = await fetch(
+    `${origin}/oauth/callback?state=opaque&code=private-code`,
+    { headers: { "sec-fetch-site": "cross-site" } },
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(frontend, 1);
+  assert.equal(
+    (
+      await fetch(`${origin}/app/mcp-oauth/anything`, {
+        method: "POST",
+        headers: { "sec-fetch-site": "cross-site" },
+      })
+    ).status,
+    403,
+  );
+  const rebound = await new Promise((resolve) => {
+    const req = request(
+      `${origin}/oauth/callback`,
+      { headers: { host: "evil.example", "sec-fetch-site": "cross-site" } },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode);
+      },
+    );
+    req.end();
+  });
+  assert.equal(rebound, 403);
 });

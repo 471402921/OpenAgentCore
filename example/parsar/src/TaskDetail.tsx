@@ -1,3 +1,4 @@
+import { tr } from "./lib/i18n";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -26,7 +27,6 @@ import { Textarea } from "./components/ui/textarea";
 import { Select, SelectOption } from "./components/ui/select";
 import { ErrorNotice } from "./components/shared";
 import { EmptyState } from "./components/ui/empty-state";
-
 export function RunStatus({ run }: { run: SessionRecord }) {
   const query = useQuery({
     queryKey: ["run-status", run.core_session_id],
@@ -47,10 +47,10 @@ export function RunStatus({ run }: { run: SessionRecord }) {
   return (
     <span>
       {!run.core_session_id
-        ? "待恢复"
+        ? tr("待恢复")
         : query.error
-          ? "状态暂不可用"
-          : query.data || "读取状态…"}
+          ? tr("状态暂不可用")
+          : query.data || tr("读取状态\u2026")}
     </span>
   );
 }
@@ -76,6 +76,7 @@ export function TaskDetail({ id }: { id: string }) {
     projects = useProjects();
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState("");
+  const [notifyAgent, setNotifyAgent] = useState(false);
   const [commentId, setCommentId] = useState(() => crypto.randomUUID());
   const [runId, setRunId] = useState(() => crypto.randomUUID());
   const refresh = () => {
@@ -107,14 +108,17 @@ export function TaskDetail({ id }: { id: string }) {
     },
   });
   const post = useMutation({
+    onSettled: refresh,
     mutationFn: () =>
-      product(`tasks/${id}/activity/${commentId}`, "PUT", { message: comment }),
+      product(`tasks/${id}/activity/${commentId}`, "PUT", { message: comment, notify_agent: notifyAgent }),
     onSuccess: () => {
       setComment("");
       setCommentId(crypto.randomUUID());
+      setNotifyAgent(false);
       refresh();
     },
   });
+  const retryComment = useMutation({ mutationFn: (item: { id: string; message: string }) => product(`tasks/${id}/activity/${item.id}`, "PUT", { message: item.message, notify_agent: true }), onSettled: refresh });
   const remove = useMutation({
     mutationFn: () => product(`tasks/${id}`, "DELETE", task.data),
     onSuccess: () => {
@@ -132,23 +136,25 @@ export function TaskDetail({ id }: { id: string }) {
     return (
       <>
         <ErrorNotice error={task.error} retry={() => void task.refetch()} />
-        <EmptyState title={task.isPending ? "正在加载…" : "任务不可用"} />
+        <EmptyState
+          title={task.isPending ? tr("正在加载\u2026") : tr("任务不可用")}
+        />
       </>
     );
   return (
     <>
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b border-line px-6 py-3">
         <Button asChild size="icon" variant="ghost">
-          <a href="#/tasks" aria-label="返回任务">
+          <a href="#/tasks" aria-label={tr("返回任务")}>
             <ArrowLeft />
           </a>
         </Button>
         <span className="flex-1 text-fg-muted">
-          {project?.name || "独立任务"}
+          {project?.name || tr("独立任务")}
         </span>
         <Button variant="ghost" onClick={() => setEditing(true)}>
           <Pencil />
-          编辑任务
+          {tr("编辑任务")}
         </Button>
         <Button
           disabled={
@@ -160,12 +166,12 @@ export function TaskDetail({ id }: { id: string }) {
         >
           <Play />
           {dispatch.isPending
-            ? "分配中…"
+            ? tr("分配中\u2026")
             : pending
-              ? "恢复执行"
+              ? tr("恢复执行")
               : runs.data?.length
-                ? "重新执行"
-                : "分配执行"}
+                ? tr("重新执行")
+                : tr("分配执行")}
         </Button>
       </header>
       <ErrorNotice
@@ -186,7 +192,7 @@ export function TaskDetail({ id }: { id: string }) {
               {row.name}
             </h1>
             <p className="whitespace-pre-wrap break-words leading-relaxed">
-              {row.description || "尚未添加任务说明。"}
+              {row.description || tr("尚未添加任务说明。")}
             </p>
             {restriction && (
               <p
@@ -198,25 +204,27 @@ export function TaskDetail({ id }: { id: string }) {
             )}
             {(!agent || !runtime) && (
               <p className="mt-5 text-fg-muted">
-                编辑任务，选择 Agent 和运行时后即可分配执行。
+                {tr("编辑任务，选择 Agent 和运行时后即可分配执行。")}
                 <a className="ml-2 underline" href="#/agents">
-                  管理 Agents
+                  {tr("管理 Agents")}
                 </a>
               </p>
             )}
             <section className="mt-10">
               <h2 className="mb-4 text-lg font-medium">
-                执行记录{" "}
+                {tr("执行记录")}{" "}
                 <span className="ml-2 text-sm text-fg-muted">
                   {runs.data?.length || 0}
                 </span>
               </h2>
               <p className="mb-4 text-sm text-fg-muted">
-                每次分配创建独立会话；追问请继续原会话。执行完成后检查结果，再提交验收。
+                {tr(
+                  "每次分配创建独立会话；追问请继续原会话。执行完成后检查结果，再提交验收。",
+                )}
               </p>
               {!runs.data?.length ? (
                 <div className="rounded-lg border border-line p-5 text-fg-muted">
-                  还没有执行记录。任务说明和项目背景会一起交给 Agent。
+                  {tr("还没有执行记录。任务说明和项目背景会一起交给 Agent。")}
                 </div>
               ) : (
                 <div className="divide-y divide-line rounded-lg border border-line">
@@ -229,7 +237,8 @@ export function TaskDetail({ id }: { id: string }) {
                       <Play className="h-4 w-4 text-fg-muted" />
                       <div className="min-w-0 flex-1">
                         <p>
-                          执行 {runs.data.length - index} ·{" "}
+                          {tr("执行")}
+                          {runs.data.length - index} ·{" "}
                           {agents.data?.find((a) => a.id === run.agent_id)
                             ?.name || "Agent"}
                         </p>
@@ -249,7 +258,7 @@ export function TaskDetail({ id }: { id: string }) {
             <section className="mt-10">
               <h2 className="mb-5 flex items-center gap-2 text-lg font-medium">
                 <MessageSquare className="h-4 w-4" />
-                讨论与活动
+                {tr("讨论与活动")}
               </h2>
               <div className="mb-5 space-y-4">
                 {activity.data?.map((item) => (
@@ -263,18 +272,21 @@ export function TaskDetail({ id }: { id: string }) {
                   >
                     <div className="mb-1 text-xs text-fg-muted">
                       {dateTime(item.created_at)} ·{" "}
-                      {item.type === "comment" ? "工作区备注" : "任务活动"}
+                      {item.type === "comment"
+                        ? tr("工作区备注")
+                        : tr("任务活动")}
                     </div>
                     <p className="whitespace-pre-wrap break-words">
                       {item.message}
-                      {item.to && <>：{taskStatuses[item.to]}</>}
+                      {item.to && <>：{tr(taskStatuses[item.to])}</>}
                     </p>
+                    {item.notify_agent && <div className="mt-2 text-xs text-fg-muted">{item.delivery === "sent" ? tr("已发送给 Agent") : <><span>{item.delivery_error || tr("发送待确认")}</span><Button variant="ghost" size="sm" disabled={retryComment.isPending} onClick={() => retryComment.mutate(item)}>{tr("重试发送")}</Button></>}</div>}
                     {item.session_id && (
                       <a
                         className="mt-1 inline-block underline"
                         href={`#/sessions/${item.session_id}`}
                       >
-                        查看会话
+                        {tr("查看会话")}
                       </a>
                     )}
                   </div>
@@ -287,10 +299,10 @@ export function TaskDetail({ id }: { id: string }) {
                 }}
               >
                 <Textarea
-                  aria-label="任务评论"
+                  aria-label={tr("任务评论")}
                   rows={3}
                   maxLength={10000}
-                  placeholder="记录验收意见、决定或下一步…"
+                  placeholder={tr("记录验收意见、决定或下一步\u2026")}
                   disabled={post.isPending}
                   value={comment}
                   onChange={(e) => {
@@ -298,16 +310,16 @@ export function TaskDetail({ id }: { id: string }) {
                     setCommentId(crypto.randomUUID());
                   }}
                 />
-                <ErrorNotice error={post.error} />
+                <ErrorNotice error={post.error || retryComment.error} />
                 <div className="mt-3 flex items-center justify-between gap-4">
                   <span className="text-xs text-fg-muted">
-                    评论用于工作记录；与 Agent 追问请打开会话。
+                    <label className="flex items-center gap-2"><input type="checkbox" checked={notifyAgent} onChange={e => { setNotifyAgent(e.target.checked); setCommentId(crypto.randomUUID()); }} />{tr("提及已分配的 Agent")}</label>
                   </span>
                   <Button
                     disabled={post.isPending || !comment.trim()}
                     type="submit"
                   >
-                    添加评论
+                    {tr("添加评论")}
                   </Button>
                 </div>
               </form>
@@ -315,9 +327,9 @@ export function TaskDetail({ id }: { id: string }) {
           </div>
           <aside className="space-y-6">
             <div>
-              <h2 className="mb-3 text-xs text-fg-muted">任务状态</h2>
+              <h2 className="mb-3 text-xs text-fg-muted">{tr("任务状态")}</h2>
               <Select
-                aria-label="任务状态"
+                aria-label={tr("任务状态")}
                 value={row.status}
                 disabled={change.isPending}
                 onValueChange={(status) =>
@@ -326,18 +338,18 @@ export function TaskDetail({ id }: { id: string }) {
               >
                 {Object.entries(taskStatuses).map(([value, label]) => (
                   <SelectOption key={value} value={value}>
-                    {label}
+                    {tr(label)}
                   </SelectOption>
                 ))}
               </Select>
               <p className="mt-3 text-xs text-fg-muted">
-                任务状态记录交付进度，由你决定；不会请求或阻塞执行权限。
+                {tr("任务状态记录交付进度，可在检查结果后更新。")}
               </p>
             </div>
             <div className="space-y-4 border-t border-line pt-5">
               <div>
-                <p className="mb-1 text-xs text-fg-muted">优先级</p>
-                {taskPriorities[row.priority]}
+                <p className="mb-1 text-xs text-fg-muted">{tr("优先级")}</p>
+                {tr(taskPriorities[row.priority])}
               </div>
               <div>
                 <p className="mb-1 text-xs text-fg-muted">Agent</p>
@@ -346,15 +358,15 @@ export function TaskDetail({ id }: { id: string }) {
                     {agent.name}
                   </a>
                 ) : (
-                  "未分配"
+                  tr("未分配")
                 )}
               </div>
               <div>
-                <p className="mb-1 text-xs text-fg-muted">运行时</p>
-                {runtime?.name || "未选择"}
+                <p className="mb-1 text-xs text-fg-muted">{tr("运行时")}</p>
+                {runtime?.name || tr("未选择")}
               </div>
               <div>
-                <p className="mb-1 text-xs text-fg-muted">更新时间</p>
+                <p className="mb-1 text-xs text-fg-muted">{tr("更新时间")}</p>
                 {dateTime(row.updated_at)}
               </div>
               {project?.repository && (
@@ -364,7 +376,7 @@ export function TaskDetail({ id }: { id: string }) {
                   rel="noreferrer"
                   className="inline-flex items-center gap-2 underline"
                 >
-                  项目仓库
+                  {tr("项目仓库")}
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               )}
@@ -374,10 +386,10 @@ export function TaskDetail({ id }: { id: string }) {
                 variant="ghost"
                 disabled={remove.isPending || dispatch.isPending}
                 onClick={() => {
-                  if (confirm("删除此任务及其评论？")) remove.mutate();
+                  if (confirm(tr("删除此任务及其评论？"))) remove.mutate();
                 }}
               >
-                删除任务
+                {tr("删除任务")}
               </Button>
             )}
           </aside>

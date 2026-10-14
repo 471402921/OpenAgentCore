@@ -1,3 +1,11 @@
+import { QRCodeSVG } from "qrcode.react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { tr } from "./lib/i18n";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
@@ -9,6 +17,13 @@ import { Select, SelectOption } from "./components/ui/select";
 import { EmptyState } from "./components/ui/empty-state";
 import { dateTime } from "./lib/api";
 interface FeishuConfig {
+  brand?: "feishu" | "lark";
+  history_context?: boolean;
+  id: string;
+  name: string;
+  health?: {
+    state: string;
+  };
   revision: number;
   app_id: string;
   app_secret?: string;
@@ -33,17 +48,17 @@ interface Delivery {
   task_id?: string;
 }
 const states: Record<string, string> = {
-  stopped: "已停用",
-  connecting: "连接中",
-  connected: "已连接",
-  reconnecting: "重连中",
-  error: "连接失败，请检查机器人配置",
-  core_unavailable: "Core 暂不可用",
-  queued: "等待处理",
-  submitting: "正在确认",
-  delivered: "已送达",
-  failed: "需要处理",
-  rejected: "已拒绝",
+  stopped: tr("已停用"),
+  connecting: tr("连接中"),
+  connected: tr("已连接"),
+  reconnecting: tr("重连中"),
+  error: tr("连接失败，请检查机器人配置"),
+  core_unavailable: tr("Core 暂不可用"),
+  queued: tr("等待处理"),
+  submitting: tr("正在确认"),
+  delivered: tr("已送达"),
+  failed: tr("需要处理"),
+  rejected: tr("已拒绝"),
 };
 export function Feishu() {
   const cache = useQueryClient();
@@ -53,14 +68,10 @@ export function Feishu() {
     onSettled: () =>
       void cache.invalidateQueries({ queryKey: ["feishu-deliveries"] }),
   });
+  const [editing, setEditing] = useState<FeishuConfig | null>(null);
   const config = useQuery({
     queryKey: ["feishu"],
-    queryFn: () => product<FeishuConfig>("feishu"),
-  });
-  const status = useQuery({
-    queryKey: ["feishu-status"],
-    queryFn: () =>
-      product<{ state: string; updated_at?: number }>("feishu/status"),
+    queryFn: () => product<FeishuConfig[]>("feishu/bots"),
     refetchInterval: 5000,
   });
   const deliveries = useQuery({
@@ -70,63 +81,83 @@ export function Feishu() {
   });
   return (
     <>
-      <PageHeader title="飞书接入">
-        <span className="text-sm text-fg-muted" role="status">
-          {states[status.data?.state || "stopped"] || status.data?.state}
-        </span>
+      <PageHeader title={tr("飞书接入")}>
+        <FeishuRegistration complete={setEditing} />
+        <Button
+          onClick={() =>
+            setEditing({
+              id: crypto.randomUUID(),
+              name: "",
+              revision: 0,
+              app_id: "",
+              enabled: false,
+              has_app_secret: false,
+              routes: [],
+            })
+          }
+        >
+          <Plus />
+          {tr("添加机器人")}
+        </Button>
       </PageHeader>
-      <ErrorNotice
-        error={config.error || status.error || deliveries.error || retry.error}
-        retry={() => void config.refetch()}
-      />
+      <ErrorNotice error={config.error || deliveries.error || retry.error} />
       <div className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl space-y-8 p-6 lg:p-10">
-          <div>
-            <h2 className="text-xl font-semibold">让任务从团队的对话开始</h2>
-            <p className="mt-3 leading-relaxed text-fg-muted">
-              在允许的飞书群中 @机器人 描述工作，Parsar 会创建任务并交给
-              Agent。结果回到原话题；在话题中继续 @机器人 即可追问。
-            </p>
+        <div className="space-y-6 px-6 py-4">
+          <div className="divide-y divide-line border-b border-line">
+            {config.data?.map((bot) => (
+              <div
+                key={bot.id}
+                className="flex min-h-9 items-center gap-4 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {bot.name}
+                </span>
+                <span className="font-mono text-xs text-fg-muted">
+                  {bot.app_id}
+                </span>
+                <span className="text-xs">
+                  {states[bot.health?.state || "stopped"] || bot.health?.state}
+                </span>
+                <Button variant="ghost" onClick={() => setEditing(bot)}>
+                  {tr("配置机器人")}
+                </Button>
+              </div>
+            ))}
           </div>
-          <details className="rounded-lg border border-line p-5">
-            <summary className="cursor-pointer font-medium">
-              配置机器人 · 三步接入
-            </summary>
-            <ol className="mt-4 list-decimal space-y-3 pl-5 text-fg-muted">
-              <li>
-                在飞书开放平台创建企业自建应用，开启机器人能力。申请接收群内
-                @机器人 消息和以应用身份发送消息的权限。
-              </li>
-              <li>
-                事件订阅选择「使用长连接接收事件」，订阅
-                im.message.receive_v1。发布应用并把机器人加入测试群。
-              </li>
-              <li>
-                填写应用凭据，添加允许的群及其
-                Agent、运行时，然后启用。只接收这些群的 @机器人 消息；私聊和
-                @所有人 不触发执行。
-              </li>
-            </ol>
-            <p className="mt-4 text-sm text-fg-muted">
-              无需公网回调。App Secret 仅存于服务器。飞书群成员可触发对应
-              Agent；请只开放给可信群。
-            </p>
-          </details>
-          {config.data ? (
-            <FeishuEditor key={config.data.revision} value={config.data} />
-          ) : (
-            <EmptyState title="正在加载…" />
+          {!config.data?.length && !editing && (
+            <EmptyState
+              title={tr("连接飞书机器人")}
+              description={tr(
+                "每个 Agent 可绑定独立机器人，也可使用共享机器人。支持群聊与私聊。",
+              )}
+            />
+          )}
+          {editing && (
+            <section className="max-w-3xl border-b border-line pb-6">
+              <FeishuEditor key={editing.id} value={editing} />
+              <Button
+                className="mt-3"
+                variant="ghost"
+                onClick={() => setEditing(null)}
+              >
+                {tr("关闭配置")}
+              </Button>
+            </section>
           )}
           <section>
-            <h2 className="mb-4 text-lg font-medium">最近投递</h2>
+            <h2 className="mb-4 text-lg font-medium">{tr("最近投递")}</h2>
             <p className="mb-4 text-sm text-fg-muted">
-              连接中断会按相同请求标识重试。超过重试上限或飞书去重窗口的记录会保留为「需要处理」，避免重复发送。
+              {tr(
+                "连接中断会按相同请求标识重试。超过重试上限或飞书去重窗口的记录会保留为「需要处理」，避免重复发送。",
+              )}
             </p>
             {!deliveries.data?.length ? (
               <EmptyState
                 size="compact"
-                title="尚无消息"
-                description="启用后，在允许的飞书群中 @机器人 发送第一项任务。"
+                title={tr("尚无消息")}
+                description={tr(
+                  "启用后，在允许的飞书群中 @机器人 发送第一项任务。",
+                )}
               />
             ) : (
               <div className="divide-y divide-line rounded-lg border border-line">
@@ -135,16 +166,17 @@ export function Feishu() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>
                         {row.direction === "inbound"
-                          ? "飞书 → Agent"
-                          : "Agent → 飞书"}
+                          ? tr("飞书 \u2192 Agent")
+                          : tr("Agent \u2192 飞书")}
                       </span>
                       <span className="text-sm">
                         {states[row.state] || row.state}
                       </span>
                     </div>
                     <p className="mt-1 break-all text-xs text-fg-muted">
-                      {row.chat_id} · {dateTime(row.created_at / 1000)} · 尝试{" "}
-                      {row.attempts} 次
+                      {row.chat_id} · {dateTime(row.created_at / 1000)}
+                      {tr("\u00B7 尝试")} {row.attempts}
+                      {tr("次")}
                     </p>
                     {row.error && <p className="mt-2 text-sm">{row.error}</p>}
                     {row.state === "failed" && (
@@ -154,7 +186,7 @@ export function Feishu() {
                         disabled={retry.isPending}
                         onClick={() => retry.mutate(row)}
                       >
-                        重试此投递
+                        {tr("重试此投递")}
                       </Button>
                     )}
                     {row.task_id && (
@@ -162,7 +194,7 @@ export function Feishu() {
                         className="mt-2 inline-block text-sm underline"
                         href={`#/tasks/${row.task_id}`}
                       >
-                        查看任务
+                        {tr("查看任务")}
                       </a>
                     )}
                   </div>
@@ -183,11 +215,12 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
   const [form, setForm] = useState({ ...value, app_secret: "" });
   const [saved, setSaved] = useState(false);
   const save = useMutation({
-    mutationFn: () => product<FeishuConfig>("feishu", "PUT", form),
+    mutationFn: () =>
+      product<FeishuConfig>(`feishu/bots/${form.id}`, "PUT", form),
     onSuccess: (config) => {
       setForm({ ...config, app_secret: "" });
       setSaved(true);
-      cache.setQueryData(["feishu"], config);
+      void cache.invalidateQueries({ queryKey: ["feishu"] });
       void cache.invalidateQueries({ queryKey: ["feishu-status"] });
     },
   });
@@ -206,6 +239,27 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
         save.mutate();
       }}
     >
+      <Field label={tr("机器人名称")} id="feishu-name">
+        <Input
+          id="feishu-name"
+          value={form.name}
+          required
+          maxLength={80}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+        />
+      </Field>
+      <Field label={tr("地区")} id="feishu-brand">
+        <Select
+          id="feishu-brand"
+          value={form.brand || "feishu"}
+          onValueChange={(brand) =>
+            setForm({ ...form, brand: brand as "feishu" | "lark" })
+          }
+        >
+          <SelectOption value="feishu">Feishu</SelectOption>
+          <SelectOption value="lark">Lark</SelectOption>
+        </Select>
+      </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="App ID" id="feishu-app">
           <Input
@@ -224,13 +278,13 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
             value={form.app_secret}
             onChange={(e) => setForm({ ...form, app_secret: e.target.value })}
             placeholder={
-              form.has_app_secret ? "已保存，留空保留" : "输入应用密钥"
+              form.has_app_secret ? tr("已保存，留空保留") : tr("输入应用密钥")
             }
           />
         </Field>
       </div>
       <div className="flex items-center justify-between">
-        <h3 className="font-medium">允许的群与分配规则</h3>
+        <h3 className="font-medium">{tr("群聊 / 私聊分配规则")}</h3>
         <Button
           type="button"
           variant="outline"
@@ -246,7 +300,7 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
           }
         >
           <Plus />
-          添加群
+          {tr("添加群")}
         </Button>
       </div>
       {form.routes.map((route, index) => (
@@ -256,9 +310,9 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
         >
           <div className="flex gap-3">
             <Input
-              aria-label={`群 ID ${index + 1}`}
+              aria-label={tr("群 ID {{value0}}", { value0: index + 1 })}
               required
-              placeholder="oc_…"
+              placeholder={tr("oc_\u2026，或 p2p 接收私聊")}
               value={route.chat_id}
               onChange={(e) => updateRoute(index, "chat_id", e.target.value)}
             />
@@ -266,7 +320,7 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
               type="button"
               variant="ghost"
               size="icon"
-              aria-label={`移除群 ${index + 1}`}
+              aria-label={tr("移除群 {{value0}}", { value0: index + 1 })}
               onClick={() =>
                 setForm({
                   ...form,
@@ -286,20 +340,21 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
               }
             />
             <span>
-              允许群成员切换 Agent（共享机器人）
+              {tr("允许群成员切换 Agent（共享机器人）")}
               <span className="mt-1 block text-fg-muted">
-                用 /list 和 /select 选择此安装中的 Agent；关闭时固定使用下方
-                Agent。选择按群成员保存，仅影响新任务。
+                {tr(
+                  "用 /list 和 /select 选择此安装中的 Agent；关闭时固定使用下方 Agent。选择按群成员保存，仅影响新任务。",
+                )}
               </span>
             </span>
           </label>
           <div className="grid gap-3 sm:grid-cols-3">
             <Select
-              aria-label={`群项目 ${index + 1}`}
+              aria-label={tr("群项目 {{value0}}", { value0: index + 1 })}
               value={route.project_id}
               onValueChange={(value) => updateRoute(index, "project_id", value)}
             >
-              <SelectOption value="">独立任务</SelectOption>
+              <SelectOption value="">{tr("独立任务")}</SelectOption>
               {projects.data?.map((row) => (
                 <SelectOption key={row.id} value={row.id}>
                   {row.name}
@@ -307,11 +362,11 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
               ))}
             </Select>
             <Select
-              aria-label={`群 Agent ${index + 1}`}
+              aria-label={tr("群 Agent {{value0}}", { value0: index + 1 })}
               value={route.agent_id}
               onValueChange={(value) => updateRoute(index, "agent_id", value)}
             >
-              <SelectOption value="">选择 Agent</SelectOption>
+              <SelectOption value="">{tr("选择 Agent")}</SelectOption>
               {agents.data?.map((row) => (
                 <SelectOption key={row.id} value={row.id}>
                   {row.name}
@@ -319,11 +374,11 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
               ))}
             </Select>
             <Select
-              aria-label={`群运行时 ${index + 1}`}
+              aria-label={tr("群运行时 {{value0}}", { value0: index + 1 })}
               value={route.runtime_id}
               onValueChange={(value) => updateRoute(index, "runtime_id", value)}
             >
-              <SelectOption value="">选择运行时</SelectOption>
+              <SelectOption value="">{tr("选择运行时")}</SelectOption>
               {runtimes.data
                 ?.filter((row) => row.environment !== "self_hosted")
                 .map((row) => (
@@ -336,27 +391,140 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
         </div>
       ))}
       <label className="flex items-center gap-3">
+        <input type="checkbox" checked={form.history_context || false} onChange={(e) => setForm({ ...form, history_context: e.target.checked })} />
+        {tr("新话题附带最近群消息（需要历史消息权限）")}
+      </label>
+      <label className="flex items-center gap-3">
         <input
           type="checkbox"
           checked={form.enabled}
           onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
         />
-        启用飞书机器人
+        {tr("启用飞书机器人")}
       </label>
       <p className="text-sm text-fg-muted">
-        同一话题继续同一个执行会话。配置更改作用于新话题。支持
-        /cancel、/review、/done、/reopen；结果回传文本摘要，文件可在 Web
-        会话中下载。
+        {tr(
+          "同一话题继续同一个执行会话。配置更改作用于新话题。支持 /cancel、/review、/done、/reopen；结果回传文本摘要，文件可在 Web 会话中下载。",
+        )}
       </p>
       <ErrorNotice
         error={save.error || agents.error || runtimes.error || projects.error}
       />
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={save.isPending}>
-          {save.isPending ? "保存中…" : "保存飞书配置"}
+          {save.isPending ? tr("保存中\u2026") : tr("保存飞书配置")}
         </Button>
-        {saved && <span role="status">配置已保存</span>}
+        {saved && <span role="status">{tr("配置已保存")}</span>}
       </div>
     </form>
+  );
+}
+
+interface RegistrationState {
+  id: string;
+  status: "pending" | "success" | "error";
+  verification_url: string;
+  expires_at: number;
+  interval: number;
+  error?: string;
+}
+function FeishuRegistration({
+  complete,
+}: {
+  complete: (bot: FeishuConfig) => void;
+}) {
+  const [open, setOpen] = useState(false),
+    [id, setId] = useState(""),
+    cache = useQueryClient();
+  const begin = useMutation({
+    mutationFn: () =>
+      product<RegistrationState>(
+        `feishu/provision/${crypto.randomUUID()}`,
+        "POST",
+        { action: "begin", name: "Feishu" },
+      ),
+    onSuccess: (value) => {
+      cache.setQueryData(["feishu-registration", value.id], value);
+      setId(value.id);
+    },
+  });
+  const state = useQuery({
+    queryKey: ["feishu-registration", id],
+    enabled: open && !!id,
+    queryFn: () =>
+      product<RegistrationState>(`feishu/provision/${id}`, "POST", {
+        action: "poll",
+      }),
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending"
+        ? query.state.data.interval * 1000
+        : false,
+    retry: false,
+  });
+  const finish = useMutation({
+    mutationFn: () => product<FeishuConfig>(`feishu/bots/${id}`),
+    onSuccess: (bot) => {
+      void cache.invalidateQueries({ queryKey: ["feishu"] });
+      complete(bot);
+      setOpen(false);
+      setId("");
+    },
+  });
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)}>
+        {tr("扫码创建机器人")}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>{tr("扫码创建机器人")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-fg-muted">
+            {tr(
+              "使用飞书扫码并确认创建应用。应用密钥仅保存在服务器；完成后配置分配规则并启用机器人。",
+            )}
+          </p>
+          <ErrorNotice error={begin.error || state.error || finish.error} />
+          {state.data?.status === "pending" ? (
+            <div className="flex flex-col items-center gap-3">
+              <QRCodeSVG
+                value={state.data.verification_url}
+                size={220}
+                marginSize={4}
+                title={tr("飞书授权二维码")}
+              />
+              <a
+                className="text-sm underline"
+                href={state.data.verification_url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {tr("在浏览器打开授权页面")}
+              </a>
+              <p className="text-xs text-fg-muted">{tr("等待扫码确认")}</p>
+              {state.error && (
+                <Button onClick={() => void state.refetch()}>
+                  {tr("重试")}
+                </Button>
+              )}
+            </div>
+          ) : state.data?.status === "success" ? (
+            <Button disabled={finish.isPending} onClick={() => finish.mutate()}>
+              {tr("配置机器人")}
+            </Button>
+          ) : (
+            <>
+              <p className="text-sm">
+                {state.data?.error ? tr("授权已结束，请重新获取二维码。") : ""}
+              </p>
+              <Button disabled={begin.isPending} onClick={() => begin.mutate()}>
+                {tr("获取二维码")}
+              </Button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

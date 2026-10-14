@@ -60,8 +60,8 @@ Core must build, deploy and run independently of product services, frontends and
 
 - It calls only public `/v1` APIs. Its Project key stays server-side; it never holds a Core key or issues machine credentials. Self-hosted connection displays the public Session installation command unchanged; Core owns bootstrap authorization and machine credential issuance.
 - It may keep a small product-owned SQLite database (Node's built-in module, Node 22.13+), outside the checkout and isolated by Core origin and Project key fingerprint. Provider keys never reach the browser.
-- Core owns Skills and authoritative execution/history state. The example owns resource configurations, projects, tasks, comments, interval plans and Feishu delivery receipts. Session records retain Core references and pending creation requests with stable idempotency keys; product workers use the same public API as interactive flows.
-- Product resources use `/app/` and never become Core API or database conventions. Execution uses bypass mode. The local Web operator and configured Feishu groups are the example’s access boundary; it does not implement product accounts or fine-grained permissions.
+- Core owns Skills and authoritative execution/history state. The example owns resource configurations, projects, tasks, comments, interval/Cron plans and Feishu delivery receipts. Session records retain Core references and pending creation requests with stable idempotency keys; product workers use the same public API as interactive flows.
+- Product resources use `/app/` and never become Core API or database conventions. Execution uses bypass mode. The local Web operator, Agent-scoped local MCP tokens and configured Feishu routes are the example’s access boundary; it does not implement product accounts or fine-grained permissions.
 - It is excluded from Core distributions and cannot become a service dependency.
 
 ## Workflow and review

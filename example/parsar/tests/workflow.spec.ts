@@ -1,6 +1,10 @@
+import { zipSync, strToU8 } from "fflate";
 import { test, expect, type Page } from "@playwright/test";
 async function navigate(page: Page, name: string) {
-  await page.getByRole("link", { name, exact: true }).click();
+  if (["Skills", "MCP"].includes(name)) {
+    await page.getByRole("link", { name: "能力", exact: true }).click();
+    await page.getByRole("tab", { name, exact: true }).click();
+  } else await page.getByRole("link", { name, exact: true }).click();
 }
 async function resources(page: Page) {
   await page.goto("/#/models");
@@ -88,7 +92,16 @@ test.beforeEach(async ({ request }) => {
     "projects",
     "tasks",
     "activity",
-    "feishu",
+    "feishu_bots",
+    "feishu_registration",
+    "audit",
+    "settings",
+    "capabilities",
+    "mcp_oauth",
+    "agent_mcp_tokens",
+    "agent_mcp_runs",
+    "schedule_occurrences",
+    "schedule_requests",
     "feishu_inbound",
     "feishu_outbound",
     "feishu_threads",
@@ -109,79 +122,90 @@ test.beforeEach(async ({ request }) => {
 });
 
 for (const platform of [
-  { label: "macOS", path: "/Users/example/project", command: "bash fixture-native-bootstrap.sh" },
-  { label: "Windows", path: "C:\\Users\\example\\project", command: "& fixture-native-bootstrap.ps1" },
-]) test(`self-hosted ${platform.label} uses Core's command and waits before sending`, async ({
-  page,
-  request,
-}) => {
-  await resources(page);
-  await navigate(page, "模型");
-  await page.getByRole("button", { name: "编辑 Provider Moonshot" }).click();
-  await page.getByLabel("Base URL").fill("https://provider.example/v1");
-  await page.getByRole("button", { name: "手动选择", exact: true }).click();
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await navigate(page, "运行时");
-  await page.getByRole("button", { name: "添加运行时" }).click();
-  await page.getByLabel("名称", { exact: true }).fill("我的 Mac");
-  await page.getByLabel("环境类型").click();
-  await page.getByRole("option", { name: "用户机器", exact: true }).click();
-  await page.getByLabel("机器平台").click();
-  await page.getByRole("option", { name: platform.label, exact: true }).click();
-  await page
-    .getByLabel("工作目录", { exact: true })
-    .fill(platform.path);
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await navigate(page, "Agents");
-  await page.getByRole("button", { name: "新建 Agent" }).click();
-  await page.getByLabel("Agent 名称").fill("本机助手");
-  await page.getByLabel("模型", { exact: true }).click();
-  await page
-    .getByRole("option", { name: "Moonshot / Kimi", exact: true })
-    .click();
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("link", { name: "打开", exact: true }).click();
-  await page.getByRole("button", { name: "开始会话", exact: true }).click();
-  await page.getByLabel("会话名称").fill("本地会话");
-  await page.getByLabel("运行时", { exact: true }).click();
-  await page.getByRole("option", { name: "我的 Mac", exact: true }).click();
-  await expect(page.getByLabel("第一条消息")).toHaveCount(0);
-  await page.getByRole("button", { name: "开始", exact: true }).click();
-  await expect(page.getByText("等待连接", { exact: true })).toBeVisible();
-  await page.getByLabel("继续对话").fill("hello");
-  await expect(
-    page.getByRole("button", { name: "发送", exact: true }),
-  ).toBeDisabled();
-  await page.getByRole("button", { name: "连接用户机器", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText(platform.command);
-  await expect(page.getByRole("dialog")).toContainText(
-    platform.path,
-  );
-  const sessionRoute = "**/v1/agents/sessions/*";
-  await page.route(sessionRoute, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.x_agents_core.installation.expires_at = 1;
-    await route.fulfill({ response, json: body });
+  {
+    label: "macOS",
+    path: "/Users/example/project",
+    command: "bash fixture-native-bootstrap.sh",
+  },
+  {
+    label: "Windows",
+    path: "C:\\Users\\example\\project",
+    command: "& fixture-native-bootstrap.ps1",
+  },
+])
+  test(`self-hosted ${platform.label} uses Core's command and waits before sending`, async ({
+    page,
+    request,
+  }) => {
+    await resources(page);
+    await navigate(page, "模型");
+    await page.getByRole("button", { name: "编辑 Provider Moonshot" }).click();
+    await page.getByLabel("Base URL").fill("https://provider.example/v1");
+    await page.getByRole("button", { name: "手动选择", exact: true }).click();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await navigate(page, "运行时");
+    await page.getByRole("button", { name: "添加运行时" }).click();
+    await page.getByLabel("名称", { exact: true }).fill("我的 Mac");
+    await page.getByLabel("环境类型").click();
+    await page.getByRole("option", { name: "用户机器", exact: true }).click();
+    await page.getByLabel("机器平台").click();
+    await page
+      .getByRole("option", { name: platform.label, exact: true })
+      .click();
+    await page.getByLabel("工作目录", { exact: true }).fill(platform.path);
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await navigate(page, "Agents");
+    await page.getByRole("button", { name: "新建 Agent" }).click();
+    await page.getByLabel("Agent 名称").fill("本机助手");
+    await page.getByLabel("模型", { exact: true }).click();
+    await page
+      .getByRole("option", { name: "Moonshot / Kimi", exact: true })
+      .click();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("link", { name: "打开", exact: true }).click();
+    await page.getByRole("button", { name: "开始会话", exact: true }).click();
+    await page.getByLabel("会话名称").fill("本地会话");
+    await page.getByLabel("运行时", { exact: true }).click();
+    await page.getByRole("option", { name: "我的 Mac", exact: true }).click();
+    await expect(page.getByLabel("第一条消息")).toHaveCount(0);
+    await page.getByRole("button", { name: "开始", exact: true }).click();
+    await expect(page.getByText("等待连接", { exact: true })).toBeVisible();
+    await page.getByLabel("继续对话").fill("hello");
+    await expect(
+      page.getByRole("button", { name: "发送", exact: true }),
+    ).toBeDisabled();
+    await page
+      .getByRole("button", { name: "连接用户机器", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toContainText(platform.command);
+    await expect(page.getByRole("dialog")).toContainText(platform.path);
+    const sessionRoute = "**/v1/agents/sessions/*";
+    await page.route(sessionRoute, async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.x_agents_core.installation.expires_at = 1;
+      await route.fulfill({ response, json: body });
+    });
+    await expect(page.getByRole("dialog")).toContainText("安装命令暂不可用");
+    await expect(
+      page.getByRole("button", { name: "复制命令", exact: true }),
+    ).toHaveCount(0);
+    await page.unroute(sessionRoute);
+    await expect(page.getByRole("dialog")).toContainText(platform.command);
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await request.post("http://127.0.0.1:18181/connect-executor");
+    await expect(page.getByText("已连接", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "发送", exact: true }),
+    ).toBeEnabled();
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "连接用户机器", exact: true }),
+    ).toBeVisible();
   });
-  await expect(page.getByRole("dialog")).toContainText("安装命令暂不可用");
-  await expect(page.getByRole("button", { name: "复制命令", exact: true })).toHaveCount(0);
-  await page.unroute(sessionRoute);
-  await expect(page.getByRole("dialog")).toContainText(platform.command);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
-  await request.post("http://127.0.0.1:18181/connect-executor");
-  await expect(page.getByText("已连接", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "发送", exact: true }),
-  ).toBeEnabled();
-  await page.reload();
-  await expect(
-    page.getByRole("button", { name: "连接用户机器", exact: true }),
-  ).toBeVisible();
-});
 test("Agent to multiple independent Sessions, continuation and cancellation", async ({
   page,
   request,
@@ -269,6 +293,8 @@ test("model edits persist and bound resources cannot be removed", async ({
 test("Skill version upload and default selection", async ({ page }) => {
   await resources(page);
   await page.getByRole("button", { name: /code-review v1/ }).click();
+  await page.getByRole("button", { name: "查看文件", exact: true }).click();
+  await expect(page.getByText("Inspect changed files and report actionable issues.", { exact: false })).toBeVisible();
   await page.getByLabel("上传 Skill 新版本").setInputFiles({
     name: "review.zip",
     mimeType: "application/zip",
@@ -473,8 +499,9 @@ test("an active reply without a replayed item baseline refreshes immediately on 
   ).toBeVisible({ timeout: 1500 });
 });
 
-
-test("Session uploads insert a file path and download binary artifacts without leaving the conversation", async ({ page }) => {
+test("Session uploads insert a file path and download binary artifacts without leaving the conversation", async ({
+  page,
+}) => {
   await page.goto("/");
   await resources(page);
   await agent(page);
@@ -482,16 +509,35 @@ test("Session uploads insert a file path and download binary artifacts without l
   await session(page);
   await expect(page.getByLabel("继续对话")).toBeVisible();
   await page.getByRole("button", { name: "文件", exact: true }).click();
-  await page.getByLabel("选择上传文件").setInputFiles({ name: "large.bin", mimeType: "application/octet-stream", buffer: Buffer.alloc(5 * 1024 * 1024 + 1) });
+  await page.getByLabel("选择上传文件").setInputFiles({
+    name: "large.bin",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.alloc(5 * 1024 * 1024 + 1),
+  });
   await expect(page.getByRole("alert")).toContainText("文件不能超过 5 MiB");
-  await page.getByLabel("选择上传文件").setInputFiles({ name: "numbers.csv", mimeType: "text/csv", buffer: Buffer.from("a,b\n1,2") });
+  await page.getByLabel("选择上传文件").setInputFiles({
+    name: "numbers.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("a,b\n1,2"),
+  });
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByLabel("继续对话")).toHaveValue(/请处理文件：\.\/inputs\/.*numbers.csv/);
+  await expect(page.getByLabel("继续对话")).toHaveValue(
+    /请处理文件：\.\/inputs\/.*numbers.csv/,
+  );
   await page.getByRole("button", { name: "文件", exact: true }).click();
-  const uploaded = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/files"));
-  await page.getByLabel("选择上传文件").setInputFiles({ name: "中".repeat(80) + ".txt", mimeType: "text/plain", buffer: Buffer.from("small") });
+  const uploaded = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && request.url().endsWith("/files"),
+  );
+  await page.getByLabel("选择上传文件").setInputFiles({
+    name: "中".repeat(80) + ".txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("small"),
+  });
   const uploadedPath = (await uploaded).postDataJSON().path;
-  expect(Buffer.byteLength(uploadedPath.split("/").at(-1), "utf8")).toBeLessThanOrEqual(255);
+  expect(
+    Buffer.byteLength(uploadedPath.split("/").at(-1), "utf8"),
+  ).toBeLessThanOrEqual(255);
   expect(uploadedPath).not.toContain("�");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const draft = await page.getByLabel("继续对话").inputValue();
@@ -505,7 +551,13 @@ test("Session uploads insert a file path and download binary artifacts without l
   await expect(page.getByLabel("继续对话")).toHaveValue(draft);
   await page.getByRole("button", { name: "文件", exact: true }).click();
   const contentRoute = "**/artifacts/*/content";
-  await page.route(contentRoute, (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { message: "文件暂不可用" } }) }));
+  await page.route(contentRoute, (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { message: "文件暂不可用" } }),
+    }),
+  );
   await page.getByRole("button", { name: "下载 report.bin" }).click();
   await expect(page.getByRole("alert")).toContainText("文件暂不可用");
   await page.unroute(contentRoute);
@@ -521,33 +573,53 @@ test("Session uploads insert a file path and download binary artifacts without l
   await page.route(/\/v1\/agents\/sessions\/[a-f0-9-]+$/, async (route) => {
     const response = await route.fetch();
     const value = await response.json();
-    await route.fulfill({ json: { ...value, status: "failed", error: "运行环境准备失败，请检查配置。" } });
+    await route.fulfill({
+      json: {
+        ...value,
+        status: "failed",
+        error: "运行环境准备失败，请检查配置。",
+      },
+    });
   });
-  await expect(page.getByRole("alert")).toContainText("运行环境准备失败，请检查配置。");
+  await expect(page.getByRole("alert")).toContainText(
+    "运行环境准备失败，请检查配置。",
+  );
 });
 
-
-test("unsupported runtime bindings are explained before Session creation", async ({ page, request }) => {
+test("unsupported runtime bindings are explained before Session creation", async ({
+  page,
+  request,
+}) => {
   await resources(page);
   await agent(page);
-  const runtime = await request.put("http://127.0.0.1:18180/app/runtimes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", {
-    headers: { origin: "http://127.0.0.1:18180" },
-    data: { name: "用户机器", environment: "self_hosted", platform: "linux", workspace_directory: "/home/user/project" },
-  });
+  const runtime = await request.put(
+    "http://127.0.0.1:18180/app/runtimes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    {
+      headers: { origin: "http://127.0.0.1:18180" },
+      data: { name: "纯文本", environment: "none" },
+    },
+  );
   expect(runtime.ok()).toBe(true);
   await page.getByRole("link", { name: "打开", exact: true }).click();
   await page.getByRole("button", { name: "开始会话", exact: true }).click();
   await page.getByLabel("会话名称").fill("Blocked");
   await page.getByLabel("运行时", { exact: true }).click();
-  await page.getByRole("option", { name: "用户机器", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("不能绑定托管 Skill");
-  await expect(page.getByRole("button", { name: "开始", exact: true })).toBeDisabled();
-  const counts = await (await request.get("http://127.0.0.1:18181/counts")).json();
+  await page.getByRole("option", { name: "纯文本", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Skills 需要托管运行环境",
+  );
+  await expect(
+    page.getByRole("button", { name: "开始", exact: true }),
+  ).toBeDisabled();
+  const counts = await (
+    await request.get("http://127.0.0.1:18181/counts")
+  ).json();
   expect(counts.sessions).toHaveLength(0);
 });
 
-
-test("a send completed after leaving the Session does not restore a sent draft", async ({ page }) => {
+test("a send completed after leaving the Session does not restore a sent draft", async ({
+  page,
+}) => {
   await resources(page);
   await agent(page);
   await page.getByRole("link", { name: "打开", exact: true }).click();
@@ -556,8 +628,12 @@ test("a send completed after leaving the Session does not restore a sent draft",
   const sessionURL = page.url();
   let release!: () => void;
   let arrived!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const received = new Promise<void>((resolve) => { arrived = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const received = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
   await page.route("**/events", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     const response = await route.fetch();
@@ -570,75 +646,205 @@ test("a send completed after leaving the Session does not restore a sent draft",
   await received;
   await page.getByRole("link", { name: "返回 Agent" }).click();
   release();
-  await expect.poll(() => page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("oac-example-message-")).length)).toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Object.keys(sessionStorage).filter((key) =>
+            key.startsWith("oac-example-message-"),
+          ).length,
+      ),
+    )
+    .toBe(0);
   await page.goto(sessionURL);
   await expect(page.getByLabel("继续对话")).toHaveValue("");
 });
 
-test("project task dispatch, discussion, review, schedules and Feishu configuration form a complete product flow", async ({ page }, testInfo) => {
-  await resources(page); await agent(page);
-  await navigate(page,"项目");
-  await page.getByRole("button",{name:"新建项目",exact:true}).click();
+test("project task dispatch, discussion, review, schedules and Feishu configuration form a complete product flow", async ({
+  page,
+}, testInfo) => {
+  await resources(page);
+  await agent(page);
+  await navigate(page, "项目");
+  await page.getByRole("button", { name: "新建项目", exact: true }).click();
   await page.getByLabel("项目名称").fill("Website launch");
   await page.getByLabel("项目背景").fill("Accessible engineering workspace");
-  await page.getByLabel("仓库地址（可选）").fill("https://github.com/example/website");
-  await page.getByRole("button",{name:"保存",exact:true}).click();
-  await page.getByRole("link",{name:"Website launch",exact:true}).click();
-  await page.getByRole("button",{name:"新建任务",exact:true}).click();
+  await page
+    .getByLabel("仓库地址（可选）")
+    .fill("https://github.com/example/website");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByRole("link", { name: "Website launch", exact: true }).click();
+  await page.getByRole("button", { name: "新建任务", exact: true }).click();
   await page.getByLabel("任务标题").fill("Verify login keyboard flow");
-  await page.getByLabel("任务说明").fill("Check focus order and return a concise verification report.");
-  await page.getByLabel("执行 Agent",{exact:true}).click();
-  await page.getByRole("option",{name:"审查助手",exact:true}).click();
-  await page.getByLabel("任务运行时",{exact:true}).click();
-  await page.getByRole("option",{name:"开发沙箱",exact:true}).click();
-  await page.getByRole("button",{name:"保存任务",exact:true}).click();
-  await expect(page.getByRole("heading",{name:"Verify login keyboard flow",exact:true})).toBeVisible();
-  await page.getByLabel("任务评论").fill("Acceptance: every control is keyboard accessible.");
-  await page.getByRole("button",{name:"添加评论",exact:true}).click();
-  await page.getByRole("button",{name:"分配执行",exact:true}).click();
+  await page
+    .getByLabel("任务说明")
+    .fill("Check focus order and return a concise verification report.");
+  await page.getByLabel("执行 Agent", { exact: true }).click();
+  await page.getByRole("option", { name: "审查助手", exact: true }).click();
+  await page.getByLabel("任务运行时", { exact: true }).click();
+  await page.getByRole("option", { name: "开发沙箱", exact: true }).click();
+  await page.getByRole("button", { name: "保存任务", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Verify login keyboard flow",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByLabel("任务评论")
+    .fill("Acceptance: every control is keyboard accessible.");
+  await page.getByRole("button", { name: "添加评论", exact: true }).click();
+  await page.getByRole("button", { name: "分配执行", exact: true }).click();
   await expect(page.getByText("已检查登录流程并补充验证。")).toBeVisible();
-  await page.getByRole("link",{name:"返回任务",exact:true}).click();
-  await expect(page.getByText("Acceptance: every control is keyboard accessible.")).toBeVisible();
-  await page.getByLabel("任务状态",{exact:true}).click();
-  await page.getByRole("option",{name:"待验收",exact:true}).click();
-  await page.getByLabel("任务状态",{exact:true}).click();
-  await page.getByRole("option",{name:"已完成",exact:true}).click();
+  await page.getByRole("link", { name: "返回任务", exact: true }).click();
+  await expect(
+    page.getByText("Acceptance: every control is keyboard accessible."),
+  ).toBeVisible();
+  await page.getByLabel("任务状态", { exact: true }).click();
+  await page.getByRole("option", { name: "待验收", exact: true }).click();
+  await page.getByLabel("任务状态", { exact: true }).click();
+  await page.getByRole("option", { name: "已完成", exact: true }).click();
   await page.reload();
-  await expect(page.getByRole("button",{name:"重新执行",exact:true})).toBeDisabled();
-  await navigate(page,"任务");
+  await expect(
+    page.getByRole("button", { name: "重新执行", exact: true }),
+  ).toBeDisabled();
+  await navigate(page, "任务");
   await page.getByLabel("搜索任务").fill("keyboard");
-  await expect(page.getByRole("region",{name:"已完成",exact:true})).toContainText("Verify login keyboard flow");
-  await page.screenshot({path:testInfo.outputPath("tasks-light.png")});
-  await page.getByRole("button",{name:"切换深色"}).click();
-  await page.screenshot({path:testInfo.outputPath("tasks-dark.png")});
-  await page.getByRole("button",{name:"列表视图",exact:true}).click();
-  await expect(page.getByRole("link",{name:/Verify login keyboard flow/})).toBeVisible();
-  await navigate(page,"定时任务");
-  await page.getByRole("button",{name:"新建计划",exact:true}).click();
+  await page.getByRole("button", { name: "看板视图", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "已完成", exact: true }),
+  ).toContainText("Verify login keyboard flow");
+  await page.screenshot({ path: testInfo.outputPath("tasks-light.png") });
+  await page.getByRole("button", { name: "切换深色" }).click();
+  await page.screenshot({ path: testInfo.outputPath("tasks-dark.png") });
+  await page.getByRole("button", { name: "列表视图", exact: true }).click();
+  await expect(
+    page.getByRole("link", { name: /Verify login keyboard flow/ }),
+  ).toBeVisible();
+  await navigate(page, "定时任务");
+  await page.getByRole("button", { name: "新建计划", exact: true }).click();
   await page.getByLabel("计划名称").fill("Daily accessibility review");
   await page.getByLabel("任务模板").click();
-  await page.getByRole("option",{name:"Verify login keyboard flow",exact:true}).click();
+  await page
+    .getByRole("option", { name: "Verify login keyboard flow", exact: true })
+    .click();
   await page.getByLabel("间隔（分钟）").fill("1440");
-  await page.getByRole("button",{name:"保存计划",exact:true}).click();
-  await expect(page.getByRole("heading",{name:"Daily accessibility review"})).toBeVisible();
-  await page.getByRole("button",{name:"暂停",exact:true}).click();
-  await navigate(page,"飞书");
-  await page.getByLabel("App ID",{exact:true}).fill("cli_0123456789abcdef");
-  await page.getByLabel("App Secret",{exact:true}).fill("fixture-secret");
-  await page.getByRole("button",{name:"添加群",exact:true}).click();
-  await page.getByLabel("群 ID 1",{exact:true}).fill("oc_fixture");
-  await page.getByLabel("群 Agent 1",{exact:true}).click();
-  await page.getByRole("option",{name:"审查助手",exact:true}).click();
-  await page.getByLabel("群运行时 1",{exact:true}).click();
-  await page.getByRole("option",{name:"开发沙箱",exact:true}).click();
-  await page.getByRole("checkbox",{name:/允许群成员切换 Agent/}).check();
-  await page.getByRole("button",{name:"保存飞书配置",exact:true}).click();
+  await page.getByRole("button", { name: "保存计划", exact: true }).click();
+  await expect(
+    page.getByText("Daily accessibility review", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "暂停", exact: true }).click();
+  await navigate(page, "飞书");
+  await page.getByRole("button", { name: "添加机器人", exact: true }).click();
+  await page.getByLabel("机器人名称", { exact: true }).fill("Team bot");
+  await page.getByLabel("App ID", { exact: true }).fill("cli_0123456789abcdef");
+  await page.getByLabel("App Secret", { exact: true }).fill("fixture-secret");
+  await page.getByRole("button", { name: "添加群", exact: true }).click();
+  await page.getByLabel("群 ID 1", { exact: true }).fill("oc_fixture");
+  await page.getByLabel("群 Agent 1", { exact: true }).click();
+  await page.getByRole("option", { name: "审查助手", exact: true }).click();
+  await page.getByLabel("群运行时 1", { exact: true }).click();
+  await page.getByRole("option", { name: "开发沙箱", exact: true }).click();
+  await page.getByRole("checkbox", { name: /允许群成员切换 Agent/ }).check();
+  await page.getByRole("button", { name: "保存飞书配置", exact: true }).click();
   await page.reload();
-  await expect(page.getByLabel("App ID",{exact:true})).toHaveValue("cli_0123456789abcdef");
-  await expect(page.getByLabel("App Secret",{exact:true})).toHaveValue("");
-  await expect(page.getByLabel("群 ID 1",{exact:true})).toHaveValue("oc_fixture");
-  await expect(page.getByRole("checkbox",{name:/允许群成员切换 Agent/})).toBeChecked();
-  await page.setViewportSize({width:390,height:844});
-  await page.screenshot({path:testInfo.outputPath("feishu-mobile.png")});
-  await expect(page.getByRole("button",{name:"保存飞书配置",exact:true})).toBeVisible();
+  await page.getByRole("button", { name: "配置机器人", exact: true }).click();
+  await expect(page.getByLabel("App ID", { exact: true })).toHaveValue(
+    "cli_0123456789abcdef",
+  );
+  await expect(page.getByLabel("App Secret", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("群 ID 1", { exact: true })).toHaveValue(
+    "oc_fixture",
+  );
+  await expect(
+    page.getByRole("checkbox", { name: /允许群成员切换 Agent/ }),
+  ).toBeChecked();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("feishu-mobile.png") });
+  await expect(
+    page.getByRole("button", { name: "保存飞书配置", exact: true }),
+  ).toBeVisible();
+});
+
+test("workspace settings retain the name and switch the complete navigation between languages", async ({
+  page,
+}) => {
+  await page.goto("/#/settings");
+  await page.getByLabel("名称", { exact: true }).fill("Research studio");
+  await page.getByRole("button", { name: "保存设置" }).click();
+  await expect(
+    page.getByText("Research studio", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "English", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(
+    page.getByRole("link", { name: "Conversation", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+    "Research studio",
+  );
+  await page.getByRole("button", { name: "简体中文", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+  await expect(
+    page.getByRole("link", { name: "对话", exact: true }),
+  ).toBeVisible();
+});
+
+test("business questions appear in Inbox and use the public function-result event", async ({ page, request }) => {
+  await resources(page); await agent(page);
+  await page.getByRole("link", { name: "打开", exact: true }).click(); await session(page);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  const question = await request.post("http://127.0.0.1:18181/question", { headers: { Authorization: "Bearer fixture-project-key" } });
+  expect(question.ok()).toBeTruthy();
+  await navigate(page, "收件箱");
+  await expect(page.getByText("选择报告语言", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "English", exact: true }).click();
+  await page.getByRole("button", { name: "提交回答", exact: true }).click();
+  await expect(page.getByText("没有待回答的问题", { exact: true })).toBeVisible();
+});
+
+test("credential tokens remain write-only through creation, replacement, and deletion", async ({ page }) => {
+  await page.goto("/#/credentials");
+  page.once("dialog", dialog => dialog.accept("Team secrets"));
+  await page.getByRole("button", { name: "新建凭据库" }).click();
+  await page.getByRole("button", { name: "添加凭据" }).click();
+  await page.getByLabel("名称", { exact: true }).fill("Docs credential");
+  await page.getByLabel("HTTPS MCP 地址").fill("https://mcp.example/docs");
+  await page.getByLabel("Bearer Token").fill("fixture-write-only-token");
+  await page.getByRole("button", { name: "保存凭据" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("Docs credential", { exact: true })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("fixture-write-only-token");
+  await page.getByRole("button", { name: "更换密钥" }).click();
+  await expect(page.getByLabel("Bearer Token")).toHaveValue("");
+  await page.getByLabel("Bearer Token").fill("replacement-token");
+  await page.getByRole("button", { name: "保存凭据" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "删除凭据 Docs credential" }).click();
+  await expect(page.getByText("Docs credential", { exact: true })).toHaveCount(0);
+});
+
+test("installed frontend extension renders a Parsar slot and disappears when disabled", async ({ page }) => {
+  await page.goto("/#/capabilities");
+  await page.getByRole("tab", { name: "Plugins", exact: true }).click();
+  await page.getByRole("button", { name: "添加能力", exact: true }).click();
+  await page.getByLabel("名称", { exact: true }).fill("Workspace helper");
+  await page.getByLabel("Plugin ZIP（新版本）").setInputFiles({ name: "helper.zip", mimeType: "application/zip", buffer: Buffer.from(zipSync({ ".codex-plugin/plugin.json": strToU8(JSON.stringify({ name: "helper" })) })) });
+  const code = `const {React,definePlugin}=window.__PARSAR_PLUGIN_API__;definePlugin('helper',ctx=>ctx.slots.register('layout.header.actions',{key:'helper',component:()=>React.createElement('div',{'data-testid':'plugin-banner'},'Workspace extension ready')}));`;
+  await page.getByLabel("前端扩展 JavaScript（可选）").setInputFiles({ name: "client.js", mimeType: "text/javascript", buffer: Buffer.from(code) });
+  await page.getByRole("button", { name: "保存能力", exact: true }).click();
+  await expect(page.getByTestId("plugin-banner")).toHaveText("Workspace extension ready");
+  await page.reload();
+  await expect(page.getByTestId("plugin-banner")).toBeVisible();
+  await page.getByRole("tab", { name: "Plugins", exact: true }).click();
+  await page.getByRole("button", { name: "Workspace helper", exact: true }).click();
+  await page.getByLabel("停用此能力").check();
+  await page.getByRole("button", { name: "保存能力", exact: true }).click();
+  await expect(page.getByTestId("plugin-banner")).toHaveCount(0);
 });

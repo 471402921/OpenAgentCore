@@ -1,3 +1,4 @@
+import { tr } from "./lib/i18n";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { product, useProviders, type ModelProfile } from "./lib/product";
@@ -12,7 +13,6 @@ import {
   DialogFooter,
 } from "./components/ui/dialog";
 import { Field, ErrorNotice } from "./components/shared";
-
 export function ModelEditor({
   value,
   close,
@@ -40,7 +40,9 @@ export function ModelEditor({
     >
       <DialogContent aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>{value.revision ? "编辑模型" : "添加模型"}</DialogTitle>
+          <DialogTitle>
+            {value.revision ? tr("编辑模型") : tr("添加模型")}
+          </DialogTitle>
         </DialogHeader>
         <form
           id="model-form"
@@ -56,7 +58,7 @@ export function ModelEditor({
               value={form.provider_id}
               onValueChange={(provider_id) => setForm({ ...form, provider_id })}
             >
-              <SelectOption value="">选择 Provider</SelectOption>
+              <SelectOption value="">{tr("选择 Provider")}</SelectOption>
               {providers.data?.map((provider) => (
                 <SelectOption key={provider.id} value={provider.id}>
                   {provider.name}
@@ -64,7 +66,7 @@ export function ModelEditor({
               ))}
             </Select>
           </Field>
-          <Field label="显示名称" id="model-name">
+          <Field label={tr("显示名称")} id="model-name">
             <Input
               id="model-name"
               required
@@ -73,16 +75,68 @@ export function ModelEditor({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </Field>
-          <Field label="模型 ID" id="model-id">
+          <Field label={tr("模型 ID")} id="model-id">
             <Input
               id="model-id"
               required
               value={form.model}
               maxLength={200}
               onChange={(e) => setForm({ ...form, model: e.target.value })}
-              placeholder="例如 kimi-k2.6"
+              placeholder={tr("例如 kimi-k2.6")}
             />
           </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.enabled !== false}
+              onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+            />
+            {tr("启用模型")}
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={!!form.pricing}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  pricing: e.target.checked
+                    ? { input: 0, output: 0 }
+                    : undefined,
+                })
+              }
+            />
+            {tr("设置估算价格（美元 / 百万 Token）")}
+          </label>
+          {form.pricing && (
+            <div className="grid grid-cols-2 gap-3">
+              {(["input", "output"] as const).map((key) => (
+                <Field
+                  key={key}
+                  id={`price-${key}`}
+                  label={key === "input" ? tr("输入价格") : tr("输出价格")}
+                >
+                  <Input
+                    id={`price-${key}`}
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    value={form.pricing![key]}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        pricing: {
+                          ...form.pricing!,
+                          [key]: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </Field>
+              ))}
+            </div>
+          )}
           <ErrorNotice error={save.error} />
         </form>
         <DialogFooter>
@@ -91,7 +145,7 @@ export function ModelEditor({
             form="model-form"
             disabled={save.isPending || !form.provider_id}
           >
-            保存
+            {tr("保存")}
           </Button>
         </DialogFooter>
       </DialogContent>

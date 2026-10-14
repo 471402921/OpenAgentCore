@@ -10,10 +10,14 @@ export interface ProviderProfile extends NamedResource {
   has_api_key?: boolean;
 }
 export interface ModelProfile extends NamedResource {
+  enabled?: boolean;
+  pricing?: { input: number; output: number };
   provider_id: string;
   model: string;
 }
 export interface MCPProfile extends NamedResource {
+  vault_id?: string;
+  credential_id?: string;
   label: string;
   url: string;
 }
@@ -24,13 +28,22 @@ export interface RuntimeProfile extends NamedResource {
   capability_directories?: string[];
 }
 export interface AgentProfile extends NamedResource {
+  enabled?: boolean;
+  ask_user?: boolean;
+  runtime_id?: string;
+  capability_ids?: string[];
+  capability_versions?: Record<string, string>;
   model_id: string;
   harness: CoreHarnessKind;
   instructions: string;
   skill_ids: string[];
+  skill_versions?: Record<string, string>;
   mcp_ids: string[];
 }
 export interface SessionRecord {
+  pricing?: { input: number; output: number };
+  source?: "web" | "task" | "feishu" | "schedule" | "mcp";
+  deleted_at?: number;
   task_id?: string;
   brief?: string;
   id: string;
@@ -101,6 +114,9 @@ export interface TaskRecord extends NamedResource {
   updated_at: number;
 }
 export interface TaskActivity {
+  notify_agent?: boolean;
+  delivery?: "pending" | "sent";
+  delivery_error?: string;
   id: string;
   task_id: string;
   type: string;
@@ -111,4 +127,9 @@ export interface TaskActivity {
   session_id?: string;
 }
 export const useProjects = () => useResources<ProjectRecord>("projects");
-export const useTasks = () => useQuery({ queryKey: ["tasks"], queryFn: () => product<TaskRecord[]>("tasks"), refetchInterval: 5000 });
+export const useTasks = () =>
+  useQuery({
+    queryKey: ["tasks"],
+    queryFn: () => product<TaskRecord[]>("tasks"),
+    refetchInterval: 5000,
+  });

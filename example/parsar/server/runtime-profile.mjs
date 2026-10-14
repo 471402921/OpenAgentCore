@@ -22,10 +22,23 @@ export function runtimeProfile(body) {
           ? clean(portable.slice(2))
           : unc &&
             portable.slice(2).split("/").length >= 2 &&
-            portable.slice(2).split("/").every((part) => part && part !== "." && part !== ".."))
-      : result.startsWith("/") && !unc && !result.includes("\\") && clean(result);
-    if (!valid || /[\x00-\x1f\x7f]/.test(result) || Buffer.byteLength(result) > 4096)
-      throw new AppError(400, "请填写规范的绝对目录，不使用重复分隔符、末尾斜杠、. 或 ..。");
+            portable
+              .slice(2)
+              .split("/")
+              .every((part) => part && part !== "." && part !== ".."))
+      : result.startsWith("/") &&
+        !unc &&
+        !result.includes("\\") &&
+        clean(result);
+    if (
+      !valid ||
+      /[\x00-\x1f\x7f]/.test(result) ||
+      Buffer.byteLength(result) > 4096
+    )
+      throw new AppError(
+        400,
+        "请填写规范的绝对目录，不使用重复分隔符、末尾斜杠、. 或 ..。",
+      );
     return result;
   };
   if (
