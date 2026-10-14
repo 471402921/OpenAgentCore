@@ -342,7 +342,7 @@ export function Records({
                       turn || row.turns.at(-1),
                     )
                   : {
-                      label: row.error ? tr("读取失败") : tr("待恢复"),
+                      label: row.error ? tr("读取失败") : tr(row.record.connection_wait ? "等待连接" : "待恢复"),
                       icon: "interrupted" as const,
                     };
                 return (

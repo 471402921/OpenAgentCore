@@ -508,6 +508,18 @@ export function feishuWorker(store, core, product, makeChannel, configId) {
     let run =
       store.get("sessions", thread.session_id) ||
       store.list("sessions").find((value) => value.task_id === thread.task_id);
+    if (run?.connection_requirement && row.sender_id !== thread.sender_id)
+      return reject(row, "此任务使用发起者的个人连接，请新建自己的任务。");
+    if (run?.connection_wait && !run.core_session_id) {
+      await product("DELETE", `/app/sessions/${run.id}`, {});
+      store.put("feishu_inbound", { ...row, state: "delivered" });
+      queueReply(
+        stableId(`${row.id}:cancel`),
+        thread,
+        "已取消等待授权的任务。",
+      );
+      return;
+    }
     // Resolve an uncertain initial creation before cancelling its actual Session.
     if (run && !run.core_session_id)
       run = await product(
@@ -766,20 +778,48 @@ export function feishuWorker(store, core, product, makeChannel, configId) {
       }
       if (!store.get("sessions", thread.session_id))
         requireAutomaticRuntime(store, task.runtime_id);
-      await product("PUT", `/app/tasks/${task.id}/runs/${thread.session_id}`, {
-        revision: task.revision,
-        images: media.images,
-        files: media.files,
-      });
+      const dispatched = await product(
+        "PUT",
+        `/app/tasks/${task.id}/runs/${thread.session_id}`,
+        {
+          revision: task.revision,
+          images: media.images,
+          files: media.files,
+        },
+      );
       queueReply(
         stableId(`${row.id}:accepted`),
         thread,
-        `${media.notice ? media.notice + "\n" : ""}已接收任务「${task.name}」。正在交给 Agent 执行。\n请在本话题中直接追问；/cancel 取消执行，/review 提交验收，/done 确认完成，/reopen 重新打开。\n任务编号：${task.id}（在 Parsar「任务」中搜索）`,
+        `${media.notice ? media.notice + "\n" : ""}已接收任务「${task.name}」。${dispatched.connection_wait ? "正在等待你连接飞书账号，授权后自动继续。" : "正在交给 Agent 执行。"}\n请在本话题中直接追问；/cancel 取消执行，/review 提交验收，/done 确认完成，/reopen 重新打开。\n任务编号：${task.id}（在 Parsar「任务」中搜索）`,
       );
     } else {
       const run = store.get("sessions", thread.session_id);
       if (run?.deleted_at)
         return reject(row, "此话题会话已删除，请用 /new 或新话题开始。");
+      if (run?.connection_requirement && row.sender_id !== thread.sender_id)
+        return reject(row, "此任务使用发起者的个人连接，请新建自己的任务。");
+      if (run?.connection_wait && !run.core_session_id) {
+        if (row.text === "/connect")
+          await product("POST", `/app/sessions/${run.id}/connection`, {});
+        else if (row.text === "/cancel") {
+          store.put("sessions", {
+            ...run,
+            deleted_at: Date.now(),
+            connection_wait: undefined,
+          });
+          queueReply(
+            stableId(`${row.id}:cancel`),
+            thread,
+            "已取消等待授权的任务。",
+          );
+        } else
+          return reject(
+            row,
+            "任务正在等待连接，授权后会自动继续。链接过期可发送 /connect，取消可发送 /cancel。",
+          );
+        store.put("feishu_inbound", { ...row, state: "delivered" });
+        return;
+      }
       if (!run?.core_session_id)
         return reject(row, "执行会话未确认，请先在 Web 中恢复原执行。");
       const commands = {
@@ -939,6 +979,19 @@ export function feishuWorker(store, core, product, makeChannel, configId) {
   };
   const observe = async (thread) => {
     const run = store.get("sessions", thread.session_id);
+    if (run?.connection_wait && !run.deleted_at) {
+      const login = run.connection_wait;
+      const text =
+        login.status === "pending"
+          ? `请用发起任务的飞书账号完成授权，授权后任务自动继续。\n${login.verification_url}\n${login.user_code ? `验证码：${login.user_code}\n` : ""}链接过期可发送 /connect 重新连接。`
+          : `${login.error || "授权已过期或被取消。"}\n发送 /connect 重新连接，原任务仍保留。`;
+      queueReply(
+        stableId(`${thread.id}:connection:${login.id}:${login.status}`),
+        thread,
+        text,
+      );
+      return;
+    }
     if (!run?.core_session_id || run.deleted_at) return;
     const sid = run.core_session_id;
     const [session, turns] = await Promise.all([

@@ -1923,3 +1923,58 @@ test("an inherited Feishu route can be disabled after clearing its Agent default
     /默认环境/,
   );
 });
+
+test("personal-connection Feishu threads reject other senders and cancel waiting authorization without creating a Session", async (t) => {
+  const f = await feishu(t),
+    worker = f.create();
+  await worker.receive("cli_0123456789abcdef", f.message);
+  await worker.tick();
+  const thread = f.store.list("feishu_threads")[0],
+    run = f.store.get("sessions", thread.session_id);
+  const requirement = {
+    service: "feishu",
+    bot_id: botId,
+    app_id: "cli_0123456789abcdef",
+    scopes: "contact:user.base:readonly",
+  };
+  f.store.put("sessions", { ...run, connection_requirement: requirement });
+  const before = f.calls.filter((c) => c.method === "POST").length;
+  await worker.receive("cli_0123456789abcdef", {
+    ...f.message,
+    messageId: "om_foreign",
+    rootId: f.message.messageId,
+    senderId: "ou_other",
+    content: "Read private docs",
+  });
+  await worker.tick();
+  assert.equal(f.calls.filter((c) => c.method === "POST").length, before);
+  assert.ok(
+    f.store
+      .list("feishu_inbound")
+      .some(
+        (r) =>
+          r.message_id === "om_foreign" &&
+          r.state === "rejected" &&
+          r.error.includes("个人连接"),
+      ),
+  );
+  f.store.put("sessions", {
+    ...run,
+    core_session_id: undefined,
+    connection_requirement: requirement,
+    connection_wait: {
+      id: randomUUID(),
+      status: "pending",
+      expires_at: Date.now() + 60000,
+    },
+  });
+  await worker.receive("cli_0123456789abcdef", {
+    ...f.message,
+    messageId: "om_cancel_wait",
+    rootId: f.message.messageId,
+    content: "/cancel",
+  });
+  await worker.tick();
+  assert.ok(f.store.get("sessions", run.id).deleted_at);
+  assert.equal(f.calls.filter((c) => c.method === "POST").length, before);
+});

@@ -168,7 +168,7 @@ export function AgentDetail({ id }: { id: string }) {
                 <span className="text-xs text-fg-muted">
                   {row.core_session_id
                     ? dateTime(row.created_at)
-                    : tr("待恢复")}
+                    : tr(row.connection_wait ? "等待连接" : "待恢复")}
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0" />
               </a>

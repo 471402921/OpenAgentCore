@@ -1,3 +1,4 @@
+import { connectionOwner } from "./connections.mjs";
 import { runtimeEnvironment } from "./runtime-profile.mjs";
 import { sessionRestriction } from "../shared/session-profile.mjs";
 import { AppError, text, uuid } from "./store.mjs";
@@ -15,6 +16,18 @@ export function prepareSession(store, id, body) {
     throw new AppError(400, "Agent 绑定的资源已不可用。");
   if (new Set(mcps.map((mcp) => mcp.label)).size !== mcps.length)
     throw new AppError(400, "绑定的 MCP 服务标识不能重复。");
+  if (
+    agent.connection_requirement &&
+    Object.keys(runtime.env || {}).some((name) =>
+      /^LARKSUITE_CLI_(APP_ID|APP_SECRET|USER_ACCESS_TOKEN|TENANT_ACCESS_TOKEN|BRAND|DEFAULT_AS|STRICT_MODE|AUTH_PROXY|PROXY_KEY)$/.test(
+        name,
+      ),
+    )
+  )
+    throw new AppError(
+      400,
+      "个人连接的认证配置由 Parsar 管理，请从环境模板移除飞书认证变量。",
+    );
   const environment = runtimeEnvironment(runtime);
   const restriction = sessionRestriction(agent, runtime);
   if (restriction) throw new AppError(400, restriction);
@@ -183,6 +196,10 @@ export function prepareSession(store, id, body) {
         version: row.version,
       })),
     },
+    connection_requirement: agent.connection_requirement,
+    connection_owner: agent.connection_requirement
+      ? connectionOwner(store, id)
+      : undefined,
     created_at: Math.floor(Date.now() / 1000),
     request: {
       agent: {
@@ -232,16 +249,31 @@ export function prepareSession(store, id, body) {
   };
 }
 
-export function sessionAPI(store, core) {
+export function sessionAPI(store, core, connections) {
   const running = new Map();
   const create = async (id, body) => {
     let row = store.get("sessions", id);
+    if (row?.deleted_at) throw new AppError(410, "会话已取消。");
     if (row?.core_session_id) return row;
     if (!row) {
       row = prepareSession(store, id, body);
       store.put("sessions", row);
     }
     try {
+      if (connections && row.connection_requirement) {
+        row = await connections.prepare(row);
+        if (store.get("sessions", id)?.deleted_at)
+          throw new AppError(410, "会话已取消。");
+        store.put("sessions", row);
+        if (row.connection_wait) {
+          const { request, ...record } = row;
+          return record;
+        }
+      }
+      if (row.connection) {
+        row = { ...row, connection_dispatch_pending: true };
+        store.put("sessions", row);
+      }
       // Freeze the request before sending. Retries, including after restart, reuse the same key and bytes.
       const session = await core(
         "/v1/agents/sessions",
@@ -253,6 +285,8 @@ export function sessionAPI(store, core) {
         throw new AppError(502, "Core 返回了无效的会话。");
       const { request, ...record } = row;
       record.core_session_id = session.id;
+      delete record.connection_dispatch_pending;
+      delete record.connection_error;
       store.put("sessions", record);
       return record;
     } catch (error) {
@@ -276,6 +310,8 @@ export function sessionAPI(store, core) {
 
 export async function requireSessionSettled(core, record) {
   if (record.deleted_at) return;
+  if (record.connection_wait)
+    throw new AppError(409, "任务正在等待连接，请先完成授权或取消等待。");
   if (!record.core_session_id)
     throw new AppError(409, "上次执行尚未确认，请先恢复创建。");
   const prefix = `/v1/agents/sessions/${record.core_session_id}`;

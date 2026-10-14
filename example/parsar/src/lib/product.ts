@@ -1,3 +1,4 @@
+import type { ConnectionLogin } from "../Connections";
 import { useQuery } from "@tanstack/react-query";
 import type { CoreHarnessKind } from "@oac/agents-client";
 export interface NamedResource {
@@ -30,6 +31,12 @@ export interface RuntimeProfile extends NamedResource {
   files?: { path: string; content: string }[];
 }
 export interface AgentProfile extends NamedResource {
+  connection_requirement?: {
+    service: "feishu";
+    bot_id: string;
+    app_id?: string;
+    scopes: string;
+  };
   enabled?: boolean;
   ask_user?: boolean;
   runtime_id?: string;
@@ -43,7 +50,11 @@ export interface AgentProfile extends NamedResource {
   mcp_ids: string[];
 }
 export interface SessionRecord {
+  connection_wait?: ConnectionLogin;
+  connection_error?: string;
+  connection?: { name: string; subject_id: string; expires_at: number };
   configuration?: {
+    connection?: { service: string; name: string; expires_at: number };
     agent_name: string;
     model: string;
     harness: CoreHarnessKind;

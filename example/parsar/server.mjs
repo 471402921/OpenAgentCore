@@ -1,3 +1,4 @@
+import { guardConnectionInput } from "./server/connections.mjs";
 import { agentMCPHandler } from "./server/agent-mcp.mjs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -299,6 +300,23 @@ export function createHandler(
             return fail(res, 413, "Request too large.");
           chunks.push(chunk);
         }
+        if (
+          store &&
+          req.method === "POST" &&
+          url.pathname.endsWith("/events")
+        ) {
+          let input;
+          try {
+            input = JSON.parse(Buffer.concat(chunks));
+          } catch {
+            return fail(res, 400, "Invalid JSON.");
+          }
+          try {
+            guardConnectionInput(store, url.pathname, input);
+          } catch (error) {
+            return fail(res, error.status || 502, error.message);
+          }
+        }
         const headers = {
           Authorization: `Bearer ${config.key}`,
           "OpenAI-Beta": "agents=v1",
@@ -425,7 +443,11 @@ if (
       })
     : undefined;
   const store = openStore(dataPath(config));
-  const core = coreClient(config);
+  const rawCore = coreClient(config);
+  const core = (path, method, body, idempotencyKey) => {
+    if (method === "POST") guardConnectionInput(store, path, body);
+    return rawCore(path, method, body, idempotencyKey);
+  };
   const productHandler = productAPI(
     store,
     core,
@@ -438,6 +460,17 @@ if (
     productHandler,
     createFeishuTransport,
   );
+  let connectionTimer, connectionRunning;
+  const pollConnections = () => {
+    connectionRunning = productHandler
+      .tickConnections()
+      .catch(() => {})
+      .finally(() => {
+        if (connectionTimer !== null)
+          connectionTimer = setTimeout(pollConnections, 2000);
+      });
+  };
+  pollConnections();
   feishu.start();
   const schedules = scheduleWorker(store, productHandler, core);
   schedules.start();
@@ -454,7 +487,9 @@ if (
   });
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, async () => {
-      await Promise.all([feishu.stop(), schedules.stop()]);
+      clearTimeout(connectionTimer);
+      connectionTimer = null;
+      await Promise.all([feishu.stop(), schedules.stop(), connectionRunning]);
       server.close(() => store.close());
       void vite?.close();
     });

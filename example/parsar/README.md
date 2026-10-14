@@ -65,6 +65,18 @@ Transient creation failures recover the same occurrence. Definite rejection paus
 
 A plan can deliver to an enabled Feishu bot’s configured group. The worker posts an initial card, anchors one durable thread, and follows the same Session for results and replies. Changed/disabled routes surface a delivery error in history rather than silently redirecting output.
 
+## Personal connections
+
+**我的连接** manages the local operator's external account connections. The first supported service is Feishu. In **Agent 模板**, **所需用户连接** declares the configured Feishu application and **授权范围**. The environment template only prepares lark-cli; it must not contain authentication variables that override the connection. The application's user scopes and refresh-token permission must be enabled in Feishu before consent can succeed.
+
+A new task freezes its Agent/environment configuration and waits before Core Session creation if authorization is missing. The Web shows the original verification link, QR code and user code; Feishu replies with the link and user code. A durable server poller completes the official OAuth device flow, verifies the returned user identity and resumes the original task without another prompt. Denied or expired flows remain visible and require **重新连接** (or `/connect` in Feishu); **取消任务** or `/cancel` cancels waiting work. Polling and creation retries survive process restarts and use the original execution idempotency key. Refresh tokens and application secrets remain in the restricted product store and are never sent to Core, the browser or the model.
+
+The local Web operator is a single principal, not a product login or a browser-specific account. Feishu tasks bind to the initiating sender's app-scoped open ID, and authorization must return that same identity. An already verified connection is reused only for the same application and user; another group member cannot continue a task that uses the initiator's personal connection. Agent MCP clients cannot initiate Agents that require personal connections. Scheduled tasks use the local operator's connection; missing consent keeps their task waiting rather than starting unprivileged work.
+
+Each new Session receives a short-lived user access token through the public Environment `env` contract and the official CLI's token-only mode. Tokens are refreshed server-side before new execution when needed. The snapshot's expiry is shown in **本次运行**; the public API cannot replace credentials in an existing Environment, so follow-ups after expiry require a new Session. This also means a long-running Turn can encounter token expiry and must report it. **断开连接** immediately blocks further product execution with that grant and requests provider revocation; uncertain revocation is retained and retried, not reported as completed. It does not erase conversation history or artifacts.
+
+The Feishu adapter follows the [official CLI v1.0.98 device flow](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/device_flow.go), [token refresh](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/uat_client.go) and [revocation](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/revoke.go). Its lifecycle belongs to the product; no Core protocol or privileged endpoint is added.
+
 ## Feishu
 
 **飞书接入** supports multiple enterprise/personal bots, Feishu/Lark regions, configured groups and an optional direct-message route. Secrets stay in the restricted local database. The official SDK owns authentication, normalization and long connections; no inbound public callback is needed.
@@ -94,6 +106,7 @@ Core’s Project key stays server-side. Successful Session creation leaves a Cor
 | --- | --- |
 | `/app/providers`, `/app/models`, `/app/agents`, `/app/runtimes`, `/app/mcps`, `/app/sessions` | Same-origin local UI; product workers reuse operations in-process |
 | `/app/projects`, `/app/tasks`, task `/runs` and `/activity` | Same-origin local UI and authorized Feishu/schedule operations |
+| `/app/connections`, `/app/connections/feishu/<bot-id>`, `/app/sessions/<id>/connection` | Same-origin local operator; in-process Feishu dispatch freezes sender identity; responses never contain tokens |
 | `/app/schedules`, plan `/run` and `/history` | Same-origin local UI; worker keeps durable occurrence identities |
 | `/app/feishu/bots`, `/app/feishu/provision`, `/app/feishu/deliveries` | Same-origin local UI; credentials never returned |
 | `/app/capabilities`, capability `/client.js`, `/app/skills/registry/preview` | Same-origin local UI and installed trusted frontend bundles |

@@ -47,7 +47,7 @@ export function RunStatus({ run }: { run: SessionRecord }) {
   return (
     <span>
       {!run.core_session_id
-        ? tr("待恢复")
+        ? tr(run.deleted_at ? "已取消" : run.connection_wait ? "等待连接" : "待恢复")
         : query.error
           ? tr("状态暂不可用")
           : query.data || tr("读取状态\u2026")}
@@ -97,7 +97,7 @@ export function TaskDetail({ id }: { id: string }) {
   const dispatch = useMutation({
     mutationFn: () =>
       product<SessionRecord>(
-        `tasks/${id}/runs/${runs.data?.find((row) => !row.core_session_id)?.id || runId}`,
+        `tasks/${id}/runs/${runs.data?.find((row) => !row.core_session_id && !row.deleted_at)?.id || runId}`,
         "PUT",
         { revision: task.data?.revision },
       ),
@@ -131,7 +131,7 @@ export function TaskDetail({ id }: { id: string }) {
     runtime = runtimes.data?.find((r) => r.id === row?.runtime_id),
     project = projects.data?.find((p) => p.id === row?.project_id);
   const restriction = agent ? sessionRestriction(agent, runtime) : undefined;
-  const pending = runs.data?.find((run) => !run.core_session_id);
+  const pending = runs.data?.find((run) => !run.core_session_id && !run.deleted_at);
   if (!row)
     return (
       <>
@@ -168,7 +168,7 @@ export function TaskDetail({ id }: { id: string }) {
           {dispatch.isPending
             ? tr("分配中\u2026")
             : pending
-              ? tr("恢复执行")
+              ? tr(pending.connection_wait ? "查看授权" : "恢复执行")
               : runs.data?.length
                 ? tr("重新执行")
                 : tr("分配执行")}

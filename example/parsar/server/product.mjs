@@ -1,3 +1,4 @@
+import { userConnections, connectionRequirement } from "./connections.mjs";
 import { agentMCPTokenAPI } from "./agent-mcp.mjs";
 import { mcpOAuthAPI } from "./mcp-oauth.mjs";
 import { previewRegistrySkill } from "./skills-directory.mjs";
@@ -49,7 +50,8 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
       store.remove(kind, row.id);
     }
   }
-  const sessions = sessionAPI(store, core);
+  const connections = userConnections(store, fetchImpl);
+  const sessions = sessionAPI(store, core, connections);
   const publicRow = (kind, row) => {
     if (kind === "providers") return publicProvider(row);
     if (kind === "runtimes") return publicRuntime(row);
@@ -88,6 +90,35 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
     return [...new Set(ids.map((id) => requireReference(kind, id)))];
   };
   const handle = async (method, path, body) => {
+    if (path === "/app/connections" || path.startsWith("/app/connections/"))
+      return connections.api(method, path, body);
+    const retryId = path.match(
+      /^\/app\/sessions\/([a-f0-9-]{36})\/connection$/,
+    )?.[1];
+    if (retryId && method === "POST") {
+      const row = store.get("sessions", retryId);
+      if (!row?.connection_requirement || row.core_session_id || row.deleted_at)
+        throw new AppError(409, "此会话无法重新发起连接，请开启新会话。");
+      const login = await connections.begin(
+        row.connection_requirement,
+        row.connection_owner,
+        true,
+      );
+      const current = store.get("sessions", retryId);
+      if (
+        !current ||
+        current.deleted_at ||
+        current.core_session_id ||
+        current.connection_dispatch_pending
+      )
+        throw new AppError(409, "会话状态已改变，请刷新页面。");
+      store.put("sessions", {
+        ...current,
+        connection_wait: login,
+        connection_error: undefined,
+      });
+      return login;
+    }
     if (/^\/app\/agents\/[^/]+\/mcp-token$/.test(path))
       return mcpTokens(method, path);
     if (path.startsWith("/app/mcp-oauth/")) return oauth(method, path, body);
@@ -171,6 +202,34 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
       if (["PATCH", "DELETE"].includes(method)) {
         const row = store.get("sessions", id);
         if (!row || row.deleted_at) throw new AppError(404, "会话不存在。");
+        if (
+          !row.core_session_id &&
+          row.connection_wait &&
+          method === "DELETE"
+        ) {
+          store.put("sessions", {
+            ...row,
+            deleted_at: Date.now(),
+            connection_wait: undefined,
+          });
+          const shared = store
+            .list("sessions")
+            .some(
+              (r) =>
+                r.id !== row.id &&
+                !r.deleted_at &&
+                r.connection_wait?.id === row.connection_wait.id,
+            );
+          const login = store.get("connection_logins", row.connection_wait.id);
+          if (!shared && login?.status === "pending")
+            store.put("connection_logins", {
+              ...login,
+              status: "cancelled",
+              device_code: undefined,
+              pending_tokens: undefined,
+            });
+          return { deleted: true };
+        }
         if (!row.core_session_id)
           throw new AppError(409, "请先恢复创建，以确认实际会话。");
         if (method === "PATCH") {
@@ -313,6 +372,10 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
       value.instructions = text(body.instructions, "指令", 100000);
       value.enabled = body.enabled !== false;
       value.ask_user = body.ask_user === true;
+      value.connection_requirement = connectionRequirement(
+        store,
+        body.connection_requirement,
+      );
       if (value.ask_user && body.harness === "mcode")
         throw new AppError(400, "MiniMax Code 尚不支持公开 Function 工具。");
       value.runtime_id = body.runtime_id
@@ -372,7 +435,7 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
     });
     return publicRow(kind, value);
   };
-  return async (method, path, body) => {
+  const handler = async (method, path, body) => {
     const result = await handle(method, path, body);
     if (method !== "GET")
       store.put("audit", {
@@ -383,4 +446,30 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
       });
     return result;
   };
+  handler.tickConnections = async () => {
+    await connections.tick();
+    for (const row of store
+      .list("sessions")
+      .filter(
+        (r) =>
+          (r.connection_wait || r.connection_dispatch_pending) &&
+          !r.core_session_id &&
+          !r.deleted_at,
+      )) {
+      try {
+        await sessions(row.id, {});
+      } catch (error) {
+        const current = store.get("sessions", row.id);
+        if (current)
+          store.put("sessions", {
+            ...current,
+            connection_error:
+              error instanceof AppError
+                ? error.message
+                : "连接恢复暂时失败，将自动重试。",
+          });
+      }
+    }
+  };
+  return handler;
 }

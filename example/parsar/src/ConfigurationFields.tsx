@@ -1,3 +1,4 @@
+import { useConnections } from "./Connections";
 import { useState } from "react";
 import { ModelEditor } from "./ModelEditor";
 import { ResourceEditor } from "./Resources";
@@ -20,6 +21,7 @@ import { Textarea } from "./components/ui/textarea";
 import { ErrorNotice, Field, Help } from "./components/shared";
 export type Configuration = Pick<
   AgentProfile,
+  | "connection_requirement"
   | "model_id"
   | "harness"
   | "instructions"
@@ -46,6 +48,7 @@ export function ConfigurationFields({
   value: Configuration;
   change: (value: Configuration) => void;
 }) {
+  const connections = useConnections();
   const [adding, setAdding] = useState("");
   const [resourceId, setResourceId] = useState("");
   const add = (kind: string) => {
@@ -66,6 +69,59 @@ export function ConfigurationFields({
   return (
     <>
       <h3 className="text-sm font-medium">{tr("职责与指令")}</h3>
+      <Field label={tr("所需用户连接")} id="agent-connection">
+        <Select
+          id="agent-connection"
+          value={value.connection_requirement?.bot_id || ""}
+          onValueChange={(bot_id) =>
+            change({
+              ...value,
+              connection_requirement: bot_id
+                ? {
+                    service: "feishu",
+                    bot_id,
+                    scopes:
+                      value.connection_requirement?.scopes ||
+                      "contact:user.base:readonly",
+                  }
+                : undefined,
+            })
+          }
+        >
+          <SelectOption value="">{tr("不需要个人连接")}</SelectOption>
+          {connections.data?.map((entry) => (
+            <SelectOption key={entry.bot_id} value={entry.bot_id}>
+              {tr("飞书账号")} · {entry.name}
+            </SelectOption>
+          ))}
+        </Select>
+        {value.connection_requirement && (
+          <div className="mt-3">
+            <Field label={tr("授权范围")} id="agent-connection-scopes">
+              <Textarea
+                id="agent-connection-scopes"
+                value={value.connection_requirement.scopes}
+                onChange={(e) =>
+                  change({
+                    ...value,
+                    connection_requirement: {
+                      ...value.connection_requirement!,
+                      scopes: e.target.value,
+                    },
+                  })
+                }
+                rows={3}
+              />
+            </Field>
+            <p className="mt-2 text-xs text-fg-muted">
+              {tr(
+                "运行时使用任务发起者的账号；未授权时等待连接，授权完成后自动继续。",
+              )}
+            </p>
+          </div>
+        )}
+        <ErrorNotice error={connections.error} />
+      </Field>
       <Field label={tr("指令")} id="config-instructions">
         <Textarea
           id="config-instructions"

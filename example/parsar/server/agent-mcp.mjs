@@ -152,6 +152,11 @@ export function agentMCPHandler(store, core, product) {
             true,
           ).trim();
           if (!prompt) throw new AppError(400, "Prompt cannot be empty.");
+          if (store.get("agents", id)?.connection_requirement)
+            throw new AppError(
+              400,
+              "此 Agent 需要个人连接，请从网页或飞书本人入口发起任务。",
+            );
           requireAutomaticRuntime(store, agent.runtime_id);
           const runId = randomUUID();
           try {

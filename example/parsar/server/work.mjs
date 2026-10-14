@@ -184,6 +184,11 @@ export function workAPI(store, core, sessions) {
             comment = { ...comment, session_id: run.id };
             store.put("activity", comment);
             if (!run.core_session_id) run = await sessions(run.id, {});
+            if (!comment.initial && !run.core_session_id)
+              throw new AppError(
+                428,
+                "任务正在等待个人连接，授权后请重试发送评论。",
+              );
             if (!comment.initial)
               await core(
                 `/v1/agents/sessions/${run.core_session_id}/events`,

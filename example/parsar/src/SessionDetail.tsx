@@ -175,6 +175,15 @@ export function SessionDetail({
                     )
                     .join(", ") || "—"}
                 </Property>
+                {configuration.connection && (
+                  <Property label={tr("用户连接")}>
+                    {configuration.connection.name} ·{" "}
+                    {tr("本次会话凭据有效期至")}{" "}
+                    {new Date(
+                      configuration.connection.expires_at,
+                    ).toLocaleString()}
+                  </Property>
+                )}
                 <Property label="MCP">
                   {configuration.mcps.join(", ") || "—"}
                 </Property>

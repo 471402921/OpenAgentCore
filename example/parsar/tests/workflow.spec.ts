@@ -102,6 +102,9 @@ test.beforeEach(async ({ request }) => {
     ),
   );
   for (const kind of [
+    "connection_logins",
+    "connection_bindings",
+    "user_connections",
     "sessions",
     "projects",
     "tasks",
@@ -982,4 +985,81 @@ test("drafts for different Agents survive editing and copying other templates", 
   await expect(
     page.getByRole("button", { name: "恢复草稿: Copied draft", exact: true }),
   ).toBeVisible();
+});
+
+test("personal connections show an authorization link and QR, and waiting tasks can retry or cancel", async ({
+  page,
+}) => {
+  const botId = crypto.randomUUID(),
+    runId = crypto.randomUUID();
+  let cancelled = false,
+    retries = 0;
+  const login = {
+    id: crypto.randomUUID(),
+    status: "pending",
+    verification_url: "https://accounts.feishu.cn/device?code=TEST",
+    user_code: "TEST",
+    expires_at: Date.now() + 240000,
+  };
+  await page.route("**/app/connections", (route) =>
+    route.fulfill({
+      json: [
+        {
+          service: "feishu",
+          bot_id: botId,
+          app_id: "cli_fixture",
+          name: "Office",
+          required_scopes: "calendar:calendar:readonly",
+          login,
+        },
+      ],
+    }),
+  );
+  await page.goto("/#/connections");
+  await expect(
+    page.getByRole("heading", { name: "我的连接", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: login.verification_url, exact: true }),
+  ).toHaveAttribute("href", login.verification_url);
+  await expect(
+    page.locator("svg").filter({ has: page.locator("path") }),
+  ).not.toHaveCount(0);
+  await page.route(`**/app/sessions/${runId}`, async (route) => {
+    if (route.request().method() === "DELETE") {
+      cancelled = true;
+      await route.fulfill({ json: { deleted: true } });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        id: runId,
+        name: "查看日程",
+        agent_id: crypto.randomUUID(),
+        runtime_id: crypto.randomUUID(),
+        created_at: 0,
+        ...(cancelled
+          ? { deleted_at: Date.now() }
+          : {
+              connection_wait: {
+                ...login,
+                status: retries ? "pending" : "expired",
+              },
+            }),
+      },
+    });
+  });
+  await page.route(`**/app/sessions/${runId}/connection`, (route) => {
+    retries++;
+    return route.fulfill({ json: login });
+  });
+  await page.goto(`/#/sessions/${runId}`);
+  await page.getByRole("button", { name: "重新连接", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "等待连接飞书账号", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "取消任务", exact: true }).click();
+  await expect(page.getByText("此会话已删除", { exact: true })).toBeVisible();
+  expect(retries).toBe(1);
+  expect(cancelled).toBe(true);
 });

@@ -1,3 +1,4 @@
+import { Connections } from "./Connections";
 import { ListSlot } from "./components/plugin/SlotRenderer";
 import { Inbox } from "./Questions";
 import { tr } from "./lib/i18n";
@@ -126,6 +127,12 @@ export function App() {
       label: tr("资源库"),
       icon: BookOpen,
       group: tr("构建"),
+    },
+    {
+      href: "/connections",
+      label: tr("我的连接"),
+      icon: Settings2,
+      group: tr("接入与设置"),
     },
     {
       href: "/feishu",
@@ -272,6 +279,8 @@ export function App() {
           <Capabilities key={route} initialTab="mcps" />
         ) : route === "/schedules" ? (
           <Schedules />
+        ) : route === "/connections" ? (
+          <Connections />
         ) : route === "/feishu" ? (
           <Feishu />
         ) : route === "/runtimes" ? (

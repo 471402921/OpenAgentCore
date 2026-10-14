@@ -1,3 +1,4 @@
+import { LoginCard } from "./Connections";
 import { SingleSlot } from "./components/plugin/SlotRenderer";
 import { tr } from "./lib/i18n";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +12,8 @@ export function SessionPage({ id }: { id: string }) {
   const query = useQuery({
     queryKey: ["session-record", id],
     queryFn: () => product<SessionRecord>(`sessions/${id}`),
+    refetchInterval: (query) =>
+      query.state.data?.connection_wait ? 2000 : false,
   });
   const resume = useMutation({
     mutationFn: () => product<SessionRecord>(`sessions/${id}`, "PUT", {}),
@@ -19,6 +22,44 @@ export function SessionPage({ id }: { id: string }) {
       void cache.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
+  const cancelWaiting = useMutation({
+    mutationFn: () => product(`sessions/${id}`, "DELETE"),
+    onSuccess: () =>
+      cache.invalidateQueries({ queryKey: ["session-record", id] }),
+  });
+  const reconnect = useMutation({
+    mutationFn: () => product(`sessions/${id}/connection`, "POST", {}),
+    onSuccess: () =>
+      cache.invalidateQueries({ queryKey: ["session-record", id] }),
+  });
+  if (query.data?.deleted_at) return <EmptyState title={tr("此会话已删除")} />;
+  if (query.data?.connection_wait)
+    return (
+      <div className="max-w-2xl p-6 space-y-4">
+        <h1 className="text-xl font-semibold">{query.data.name}</h1>
+        <LoginCard
+          login={query.data.connection_wait}
+          retry={() => reconnect.mutate()}
+          pending={reconnect.isPending}
+        />
+        <Button
+          variant="outline"
+          disabled={cancelWaiting.isPending}
+          onClick={() => cancelWaiting.mutate()}
+        >
+          {tr("取消任务")}
+        </Button>
+        <ErrorNotice
+          error={query.error || reconnect.error || cancelWaiting.error}
+        />
+        {query.data.connection_error && (
+          <p role="alert">{query.data.connection_error}</p>
+        )}
+        <a href="#/connections" className="underline">
+          {tr("我的连接")}
+        </a>
+      </div>
+    );
   if (query.data?.deleted_at) return <EmptyState title={tr("此会话已删除")} />;
   if (query.data?.core_session_id)
     return (
