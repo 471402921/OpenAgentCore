@@ -6,7 +6,7 @@ Every setting of a Core installation has exactly one home, in one of three categ
 
 | Category | Examples | Home | Change it with | Takes effect |
 | --- | --- | --- | --- | --- |
-| [Process settings](#process-settings) | Public URL, ports, logging, harnesses, execution concurrency, audit retention, OAuth origins, Runtime history | `.env` in the installation directory (default `~/.oac/core`) | Edit `.env`, then run `oac apply` | `oac apply` recreates the services that read the changed settings |
+| [Process settings](#process-settings) | Public URL, ports, logging, Harnesses, execution concurrency, audit retention, OAuth origins, Runtime history | `.env` in the installation directory (default `~/.oac/core`) | Edit `.env`, then run `oac apply` | `oac apply` recreates the services that read the changed settings |
 | [Secrets](#compose-installations) | Database password, credential encryption key, installation ID, Core key and the Core key digest derived from it | `secrets/` in the Compose data volume, one copy each | Initialization generates them once; `oac rotate-core-key` replaces the Core key and its digest | `oac rotate-core-key` restarts Core and Web |
 | [Runtime settings](#runtime-settings-web) | Sandbox backend and size, nodes, Projects and keys, default models, executor credentials | Core's PostgreSQL database | Web, or the Core API (`/core/v1`) with the Core key | Saved without a Core restart; nodes prepare Runtime changes asynchronously |
 
@@ -94,14 +94,14 @@ Runtime settings live in Core's database. Change them in Web; scripts use the sa
 | --- | --- | --- | --- |
 | Sandbox backend: Docker, microsandbox or E2B | **Settings** → **Sandbox and scheduling**: the setup wizard, ending with **Save configuration** | `/core/v1/sandbox/deployment` | One backend per installation, chosen after the first sign-in. Another backend needs **Reset deployment** first; see [change the sandbox configuration](./getting-started/nodes.md#change-the-sandbox-configuration) |
 | Sandbox size, Runtime release, E2B key and template build | **Settings** → **Sandbox and scheduling** → **Change resources** | `/core/v1/sandbox/deployment` | Web proposes the [default size the Provider declares](./sandbox-provider.md#register-the-provider-kind). Existing sandboxes keep their size and release. The E2B key is write-only and encrypted |
-| Nodes and their capacity | **Settings → Sandbox and scheduling**: **Add node**; **Sandbox nodes** → **Edit node**. Removal stays on the node's page | `/core/v1/sandbox/enrollment-tokens`, `/core/v1/sandbox/nodes` | See [Node capacity](#node-capacity) and the [nodes guide](./getting-started/nodes.md) |
-| Idle suspension | **Settings** → **Sandbox and scheduling** → **Capacity and suspension** → **Idle before suspension (seconds)** → **Save** | `PATCH /core/v1/sandbox/deployment` | Deployment-wide; see [suspension policy](../contracts/agents-api/sandbox-deployment.md#suspension-policy) |
+| Nodes and their capacity | **Nodes**: **Add node**, **Edit node** and removal | `/core/v1/sandbox/enrollment-tokens`, `/core/v1/sandbox/nodes` | See [Node capacity](#node-capacity) and the [nodes guide](./getting-started/nodes.md) |
+| Idle suspension | **Settings** → **Sandbox and scheduling** → **Automatic suspension** → **Idle before suspension (seconds)** → **Save** | `PATCH /core/v1/sandbox/deployment` | Deployment-wide; see [suspension policy](../contracts/agents-api/sandbox-deployment.md#suspension-policy) |
 | Independent workspace storage and tenant capacity | **Settings → Workspace storage** | `/core/v1/workspace-storage` | See [independent workspace storage](#independent-workspace-storage); existing workspaces retain their configuration |
 | Projects and API keys | **Projects and keys**: **Create project**, **Rename**, **Issue key**, **Revoke**, **Archive** | `/core/v1/projects` | Keys are shown once; Core stores digests |
-| Default model per harness | **Settings** → **Models and credentials**: **Set** | `/core/v1/harnesses/{harness}/model-configuration` | See [Default models](#default-models) |
+| Default model per Harness | **Settings** → **Models and credentials**: **Set** | `/core/v1/harnesses/{harness}/model-configuration` | See [Default models](#default-models) |
 | Executor credentials of a self-hosted Session | **Session log**, then the **Session** page: **Executor credentials** | `/core/v1/projects/{project_id}/environments/{environment_id}/executor-credentials` | See [self-hosted executors](./getting-started/self-hosted.md) |
 
-Which harnesses are enabled, and the default one, are process settings (`core.harnesses`, `core.default_harness`); **Settings → Models and credentials** shows them read-only. The [Core administration API](../contracts/agents-api/admin-api.md) lists every Core API route, and the [deployment contract](../contracts/agents-api/sandbox-deployment.md) defines the sandbox fields, limits and change rules.
+Which Harnesses are enabled, and the default one, are process settings (`OAC_HARNESSES`, `OAC_DEFAULT_HARNESS`); **Settings → Service and deployment** lists them under **Startup settings**. **Settings → Models and credentials** marks each Harness **Ready** once it is enabled and has a default model, and otherwise names the missing step: **Model provider not set** or **Disabled**. The [Core administration API](../contracts/agents-api/admin-api.md) lists every Core API route, and the [deployment contract](../contracts/agents-api/sandbox-deployment.md) defines the sandbox fields, limits and change rules.
 
 ### Independent workspace storage
 
@@ -144,7 +144,7 @@ Then create or update the microsandbox deployment through the [sandbox deploymen
 
 The storage form accepts the adapter identifier, its parameters as a JSON object and an optional write-only credential JSON object. Core validates these adapter-owned values; Web does not define provider-specific storage fields. **Edit tenant capacity** keeps the selected immutable configuration. Selecting another configuration requires a new ID and does not migrate existing workspaces.
 
-After the filesystem and deployment are selected, use **Settings → Sandbox and scheduling → Add node** to enroll the prepared hosts. Connected, ready compute alone does not qualify an external filesystem; validate actual Session creation and access through each participating node before admitting application traffic. Include the independent namespace in the [stopped-write backup and restore procedure](./getting-started/operations.md#back-up).
+After the filesystem and deployment are selected, use **Nodes → Add node** to enroll the prepared hosts. Connected, ready compute alone does not qualify an external filesystem; validate actual Session creation and access through each participating node before admitting application traffic. Include the independent namespace in the [stopped-write backup and restore procedure](./getting-started/operations.md#back-up).
 
 #### Quota mode storage server
 
@@ -196,9 +196,9 @@ The policy bounds what each tenant can commit, not the filesystem. Size the XFS 
 
 ### Node capacity
 
-Core approves a node's capacity when you generate its Add node command: **Sandboxes at once** (`max_active`, default 2) and, for microsandbox only, **Retained sandboxes** (`max_retained`, default 8), with `max_retained >= max_active >= 1`. Docker never suspends sandboxes, so Web doesn't ask for it and Core keeps `max_retained` equal to `max_active`. Change them later in **Settings → Sandbox and scheduling → Sandbox nodes** with **Edit node**. Reservations and cleanup that is not confirmed count against capacity; lowering a limit stops no running sandbox. A node's own files can't change its capacity, size or Runtime.
+Core approves a node's capacity when you generate its Add node command: **Sandboxes at once** (`max_active`, default 2) and, for microsandbox only, **Retained sandboxes** (`max_retained`, default 8), with `max_retained >= max_active >= 1`. Docker never suspends sandboxes, so Web doesn't ask for it and Core keeps `max_retained` equal to `max_active`. Change them later on **Nodes** with **Edit node**. Reservations and cleanup that is not confirmed count against capacity; lowering a limit stops no running sandbox. A node's own files can't change its capacity, size or Runtime.
 
-`core.execution_concurrency` is unrelated: it limits concurrent execution work in Core.
+`OAC_EXECUTION_CONCURRENCY` is unrelated: it limits concurrent execution work in Core.
 
 ### Default models
 

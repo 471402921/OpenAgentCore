@@ -22,7 +22,7 @@ The Core host joins like any other host: to run sandboxes on it, add it as a nod
 
 ## Add a node
 
-1. In Web, open **Settings → Sandbox and scheduling** and choose **Add node**.
+1. In Web, open **Nodes** and choose **Add node**.
 2. Set **Sandboxes at once** and, with microsandbox, **Retained sandboxes**: the node's [capacity](../configuration.md#node-capacity). You can change them later with **Edit node**.
 3. Choose **Generate command** and copy the command. It registers one node, once, and only if it runs within 10 minutes; Web counts down and offers **Generate new command** when it expires.
 4. Run it on the host. Web follows the node from registered to connected to ready.
@@ -33,7 +33,7 @@ Node installation and removal require root. Web's command uses `sudo` unless the
 
 ### The command
 
-Copy the current command from **Settings → Sandbox and scheduling → Add node**. It includes this installation's address, checksum and enrollment token. Before downloading, it checks Linux amd64, Python 3.9+ and the required tools. Temporary download failures retry up to three attempts. If checksum verification fails, copy a fresh command from Web and retry.
+Copy the current command from **Nodes → Add node**. It includes this installation's address, checksum and enrollment token. Before downloading, it checks Linux amd64, Python 3.9+ and the required tools. Temporary download failures retry up to three attempts. If checksum verification fails, copy a fresh command from Web and retry.
 
 - It downloads into the invoking account's private `~/.oac/node-bootstrap` directory, checks SHA-256, and runs with `sudo`, or directly in a root shell. Each retry clears the unfinished download while holding a lock; verified `<sha256>.pyz` files remain available to installers.
 - The token reaches the installer on standard input, so it never appears in a process argument, an environment variable or sudo's log.
@@ -68,11 +68,13 @@ The proxy applies only to installation downloads. It is not saved in the node's 
 | Node state | `/var/lib/oac-node/.oac/nodes/<installation-id>/`: identity, configuration, node files. microsandbox keeps its images and sandboxes under `/var/lib/oac-node/.oac/m/` |
 | Records | `/etc/oac-node/`: what the installer created or changed, used by reruns and uninstall |
 | Docker | The Runtime image, imported once, and a network `oac-node-<installation-id>` |
-| microsandbox network policy | Sandboxes may reach Core, DNS on the host and public addresses, and nothing else: no inbound connections and no private networks. A private model or MCP endpoint needs a policy change on the node |
+| microsandbox network policy | Sandboxes may reach Core, DNS on the host and public addresses, and nothing else: no inbound connections and no private networks |
 
 Root only prepares the account, the group and the unit; everything else, the Docker network included, runs as `oac-node`, in its own session without a terminal. The installer never installs Docker, KVM or packages, never starts Docker, never changes device permissions, sudoers, firewall or SELinux settings, and never touches other accounts.
 
 **Docker mode is root-equivalent.** Membership in the `docker` group lets `oac-node`, and so anything that controls the node, act as root on the host. Containers also share the host kernel, so a container escape reaches the host. Add Docker nodes only on hosts dedicated to sandboxes. microsandbox nodes need only the `kvm` group and run each sandbox in its own microVM.
+
+**microsandbox blocks private endpoints.** A sandbox can't reach a model provider or MCP server at a private address. Sandbox DNS queries go to the nameservers listed in the host's `/etc/resolv.conf`, and DNS rebind protection discards any answer that contains a private address, so a name those nameservers resolve to a private address doesn't resolve in the sandbox at all, even for a public service such as a model API behind a cloud VPC resolver. The Turn then fails once the Harness stops retrying. Installer-added nodes have no setting to change this. Make those nameservers return the service's public addresses; microsandbox doesn't read the host's `/etc/hosts`, so an entry there helps only when `/etc/resolv.conf` points at a local stub resolver that serves it, such as systemd-resolved at `127.0.0.53`. Otherwise use a Docker node, which doesn't filter sandbox traffic, or [register the node manually](#register-a-node-manually) with a `network` policy that also allows the private range in a rule without a port, because rebind protection ignores port-scoped rules.
 
 **One Core per host.** Nodes share the `oac-node` account, so a host serves one Core; a command from a second Core is refused.
 
@@ -93,14 +95,14 @@ Root only prepares the account, the group and the unit; everything else, the Doc
 
 The installer prints the node's log command (`Logs: …`) when it finishes. The Add node dialog shows it too when something needs attention: when the node reports a problem, or when it hasn't become connected and ready about a minute after registering.
 
-Run `sudo journalctl -u oac-node-<installation-id>.service`. In a root shell, omit `sudo`. The installation ID is in the command (`--installation-id`) and on the **Settings → Service and deployment** page.
+Run `sudo journalctl -u oac-node-<installation-id>.service`. In a root shell, omit `sudo`. The installation ID is in the command (`--installation-id`) and under **Installation details** on the **Settings → Service and deployment** page.
 
 ## Change the sandbox configuration
 
 Sandbox settings apply to the whole installation; nodes follow them.
 
 - **Size, Runtime release, E2B key or template build.** Open **Settings** → **Sandbox and scheduling** → **Change resources**, edit and save. Existing sandboxes keep their configuration. Each node prepares the new one while it keeps serving the old one, and **Nodes** shows its progress: **Preparing target**, **Ready for target** or **Preparation failed** with the [reason](#readiness-codes). Core places new Sessions on nodes ready for the new configuration first, and on nodes still serving an older one when those have no room. E2B changes apply at once.
-- **Capacity and idle suspension.** In **Settings** → **Sandbox and scheduling**, use **Sandbox nodes** → **Edit node** for each node's active and retained limits, and **Capacity and suspension** → **Idle before suspension (seconds)** → **Save** for the deployment-wide [idle policy](../../contracts/agents-api/sandbox-deployment.md#suspension-policy).
+- **Capacity and idle suspension.** On **Nodes**, use **Edit node** for a node's active and retained limits. In **Settings** → **Sandbox and scheduling**, use **Automatic suspension** → **Idle before suspension (seconds)** → **Save** for the deployment-wide [idle policy](../../contracts/agents-api/sandbox-deployment.md#suspension-policy).
 - **Backend.** On the same page, choose **Reset deployment**. Auto reset archives idle hosted Sessions at once and lets running work finish until the deadline you set; force cancels it now. Offline nodes must come back so Core can confirm their cleanup. When the reset completes, Core has retired every node and unused command: set up the new backend, then add nodes again. **Cancel reset** stops the remaining work; archived Sessions stay archived.
 
 The [reset contract](../../contracts/agents-api/sandbox-deployment.md#generation-ownership-and-rollout) describes what reset archives and keeps. To archive a single hosted Session, use the [Core API](../../contracts/agents-api/admin-api.md#session-archive).

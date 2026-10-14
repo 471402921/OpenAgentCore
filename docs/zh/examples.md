@@ -1,10 +1,10 @@
 ---
 title: "示例"
 source: docs/examples.md
-source_hash: fea7d5cf57c60b9d55214180805f9f111d1137926734e968319d64afff5fba96
+source_hash: 55efc4906a38e5bd9e65aef60f686f17c57f75c0e7356e5f6549b436d5e92137
 ---
 
-基于 [Agents API](api/public-agent-api.md)构建的完整应用。每个示例都使用 Project API 密钥连接真实的 Core 安装。
+基于 [Agents API](api/public-agent-api.md)构建的完整应用。每个示例都使用项目 API 密钥连接真实的 Core 安装。
 
 | 示例 | 展示内容 |
 | --- | --- |

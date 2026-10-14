@@ -112,7 +112,7 @@ test("issues no command before the installation is read, for a loopback public U
     await held;
     await route.fulfill({ status: 500, json: { error: { message: "Unavailable.", type: "server_error", code: null, param: null } } });
   });
-  await openConsole(page, request, "settings?id=sandbox", { installation: "local" });
+  await openConsole(page, request, "nodes", { installation: "local" });
   await page.getByRole("button", { name: "Add node" }).click();
   const add = page.getByRole("dialog", { name: "Add node" });
   await expect(add.getByRole("status")).toHaveText("Checking this installation's public URL…");
@@ -247,7 +247,7 @@ test("saves E2B without opening Add node, as it has no machines", async ({ page,
   await expect(page.getByLabel("E2B provider")).toHaveValue("sandbase");
   await expect(page.getByLabel("Sandbox API URL")).toHaveValue("https://sandbox.sandbase.ai");
   await expect(page.getByLabel("Sandbox data-plane domain")).toHaveValue("sandbox.sandbase.ai");
-  const keyConsole = page.getByRole("link", { name: "Console → API Keys" });
+  const keyConsole = page.getByRole("link", { name: "Console → API keys" });
   await expect(keyConsole.locator("..")).toHaveClass(/field-label-row/);
   await expect(keyConsole).toHaveCSS("font-size", "11px");
   await expect(keyConsole).toHaveAttribute("href", "https://www.sandbase.ai/console/keys");
@@ -272,7 +272,7 @@ test("uses the official E2B preset and clears a selected build when the key chan
   await page.getByLabel("E2B provider").selectOption("official");
   await expect(page.getByLabel("Sandbox API URL")).toHaveValue("https://api.e2b.app");
   await expect(page.getByLabel("Sandbox data-plane domain")).toHaveValue("e2b.app");
-  const keyConsole = page.getByRole("link", { name: "Console → API Keys" });
+  const keyConsole = page.getByRole("link", { name: "Console → API keys" });
   await expect(keyConsole).toHaveAttribute("href", "https://e2b.dev/dashboard?tab=api-keys");
   await page.getByLabel("Sandbox API URL").fill("https://custom.e2b.app");
   await expect(keyConsole).toHaveCount(0);
@@ -351,7 +351,7 @@ test("keeps the page usable when Core refuses a sandbox change, and shows a safe
 
 test("renames a node and sets how many sandboxes run on it at once", async ({ page, request }) => {
   await openConsole(page, request, "nodes");
-  // Nodes links to the sole capacity editor in Settings.
+  // Nodes owns each node's limits and their editor.
   const capacity = page.getByRole("table", { name: "Sandbox nodes" });
   await expect(capacity).toContainText("Active / limit");
   await expect(capacity).toContainText("5 / 8");
@@ -361,23 +361,7 @@ test("renames a node and sets how many sandboxes run on it at once", async ({ pa
   await edit.getByLabel("Sandboxes at once").fill("6");
   await edit.getByRole("button", { name: "Save" }).click();
   await expect(edit).toBeHidden();
-  await expect(page.getByRole("region", { name: "Sandbox nodes", exact: true })).toContainText("core-01-large");
-  await expect(page.getByRole("region", { name: "Sandbox nodes", exact: true })).toContainText("5 / 6");
+  await expect(capacity).toContainText("core-01-large");
+  await expect(capacity).toContainText("5 / 6");
 });
 
-
-test("node settings history follows the selected node URL", async ({ page, request }) => {
-  await openConsole(page, request, "nodes");
-  await page.getByRole("row").filter({ hasText: "core-01" }).getByRole("button", { name: "Edit node", exact: true }).click();
-  const editor = page.getByRole("dialog", { name: "Edit node", exact: true });
-  await expect(editor).toBeVisible();
-  await expect(page).toHaveURL(/#settings\?id=sandbox&node=/);
-  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(editor).toBeHidden();
-  await page.goBack();
-  await expect(editor).toBeVisible();
-  await page.goForward();
-  await expect(page).toHaveURL(/#settings\?id=sandbox$/);
-  await expect(editor).toBeHidden();
-  expect(await writes(request)).toEqual([]);
-});
