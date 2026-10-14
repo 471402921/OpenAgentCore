@@ -5,7 +5,7 @@ import { feishuRegistrationAPI } from "./feishu-registration.mjs";
 import { capabilityAPI } from "./capabilities.mjs";
 import { randomUUID } from "node:crypto";
 import { providerAPI, publicProvider } from "./providers.mjs";
-import { runtimeProfile } from "./runtime-profile.mjs";
+import { runtimeProfile, publicRuntime } from "./runtime-profile.mjs";
 import { scheduleAPI } from "./schedules.mjs";
 import { feishuAPI } from "./feishu.mjs";
 import { workAPI } from "./work.mjs";
@@ -52,6 +52,7 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
   const sessions = sessionAPI(store, core);
   const publicRow = (kind, row) => {
     if (kind === "providers") return publicProvider(row);
+    if (kind === "runtimes") return publicRuntime(row);
     if (kind === "sessions") {
       const { request, ...record } = row;
       return record;
@@ -302,7 +303,7 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
         throw new AppError(400, "MCP 标识仅支持字母、数字、下划线和连字符。");
     }
     if (kind === "runtimes") {
-      Object.assign(value, runtimeProfile(body));
+      Object.assign(value, runtimeProfile(body, previous));
     }
     if (kind === "agents") {
       value.model_id = requireReference("models", body.model_id);
@@ -369,7 +370,7 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
       if (kind === "models")
         touchProviders(previous?.provider_id, value.provider_id);
     });
-    return value;
+    return publicRow(kind, value);
   };
   return async (method, path, body) => {
     const result = await handle(method, path, body);

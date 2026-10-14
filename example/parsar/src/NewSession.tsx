@@ -41,7 +41,6 @@ export function NewSession({
   const runtime = runtimes.data?.find(
     (runtime) => runtime.id === form.runtime_id,
   );
-  const selfHosted = runtime?.environment === "self_hosted";
   const restriction = sessionRestriction(agent, runtime);
   const startedAt = useRef<number>(0);
   const [uncertain, setUncertain] = useState(false);
@@ -61,7 +60,7 @@ export function NewSession({
       void cache.invalidateQueries({ queryKey: ["sessions"] });
     },
     onSuccess: (session) => {
-      if (session.core_session_id && !session.self_hosted) {
+      if (session.core_session_id) {
         beginTiming(
           session.core_session_id,
           form.id,
@@ -123,7 +122,7 @@ export function NewSession({
               </a>
             )}
           </Field>
-          {!selfHosted && (
+          {
             <Field label={tr("第一条消息")} id="session-input">
               <Textarea
                 disabled={save.isPending || uncertain}
@@ -135,21 +134,19 @@ export function NewSession({
                 placeholder={tr("希望 Agent 做什么？")}
               />
             </Field>
-          )}
+          }
           {restriction && (
             <p role="alert" className="text-base">
               {restriction}
             </p>
           )}
-          {!restriction &&
-            runtime &&
-            (runtime.environment === "none" || agent.harness === "mcode") && (
-              <p className="text-base">
-                {tr(
-                  "此组合使用 Core 部署的模型连接；这里选择的 Provider 仅用于模型分组。",
-                )}
-              </p>
-            )}
+          {!restriction && runtime && agent.harness === "mcode" && (
+            <p className="text-base">
+              {tr(
+                "此组合使用 Core 部署的模型连接；这里选择的 Provider 仅用于模型分组。",
+              )}
+            </p>
+          )}
           <ErrorNotice error={save.error || runtimes.error} />
           {uncertain && (
             <p>
@@ -160,7 +157,7 @@ export function NewSession({
         <DialogFooter>
           <Help>
             {tr(
-              "用户机器需要先创建会话，再按连接指引启动 daemon，连接后发送消息。此会话使用当前 Agent 配置的副本。托管会话有独立工作区；继续同一会话可保留历史和仍在运行的工作区。纯文本运行时不提供工作区。",
+              "先按环境模板准备软件包和文件，再启动 Agent。继续同一会话可保留历史和工作目录。",
             )}
           </Help>
           <Button
@@ -172,7 +169,7 @@ export function NewSession({
               save.isPending ||
               !form.runtime_id ||
               !form.name.trim() ||
-              (!selfHosted && !form.input.trim())
+              !form.input.trim()
             }
           >
             {save.isPending ? tr("启动中\u2026") : tr("开始")}

@@ -142,11 +142,9 @@ export function ConfigurationFields({
             <Help>
               {group.key === "skill_ids"
                 ? tr(
-                    "最多选择 8 个技能，可使用默认版本或固定版本。托管沙箱和用户机器支持技能。",
+                    "最多选择 8 个技能，可使用默认版本或固定版本。每个新会话自动加载绑定的技能。",
                   )
-                : tr(
-                    "最多选择 8 个 MCP。沙箱和用户机器从工作区连接，纯文本会话从 Core 连接。",
-                  )}
+                : tr("最多选择 8 个 MCP，Agent 从工作环境连接这些服务。")}
             </Help>
             <Button
               type="button"

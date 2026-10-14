@@ -33,12 +33,10 @@ import { Help } from "./components/shared";
 import { useLiveSession } from "./lib/live-session";
 import { Composer } from "./Composer";
 import { SessionFiles } from "./SessionFiles";
-import { ConnectMachine } from "./ConnectMachine";
 import type { SessionRecord } from "./lib/product";
 export function SessionDetail({
   id,
   agentId,
-  machine,
   taskId,
   brief,
   configuration,
@@ -46,7 +44,6 @@ export function SessionDetail({
   configuration?: SessionRecord["configuration"];
   id: string;
   agentId: string;
-  machine?: SessionRecord["self_hosted"];
   taskId?: string;
   brief?: string;
 }) {
@@ -55,7 +52,6 @@ export function SessionDetail({
   const [messagePending, setMessagePending] = useState(false);
   const [files, setFiles] = useState(false);
   const [attachment, setAttachment] = useState("");
-  const [machineConnected, setMachineConnected] = useState(false);
   const [viewportElement, setViewportElement] = useState<HTMLDivElement | null>(
     null,
   );
@@ -155,13 +151,22 @@ export function SessionDetail({
                   {configuration.harness}
                 </Property>
                 <Property label={tr("环境模板")}>
-                  {configuration.environment_name} · {configuration.environment}
+                  {configuration.environment_name}
                 </Property>
-                {configuration.workspace_directory && (
-                  <Property label={tr("工作目录")}>
-                    {configuration.workspace_directory}
-                  </Property>
-                )}
+                <Property label={tr("软件包")}>
+                  {Object.values(configuration.packages || {})
+                    .flat()
+                    .join(", ") || "—"}
+                </Property>
+                <Property label={tr("初始化脚本")}>
+                  {configuration.setup_configured ? tr("已配置") : "—"}
+                </Property>
+                <Property label={tr("环境变量")}>
+                  {configuration.env_names?.join(", ") || "—"}
+                </Property>
+                <Property label={tr("初始文件")}>
+                  {configuration.file_paths?.join(", ") || "—"}
+                </Property>
                 <Property label="Skills">
                   {configuration.skills
                     .map(
@@ -195,20 +200,10 @@ export function SessionDetail({
           sessionId={id}
           environmentId={environmentId}
           writable={
-            !messagePending &&
-            !query.error &&
-            session.status === "idle" &&
-            (!machine || machineConnected)
+            !messagePending && !query.error && session.status === "idle"
           }
           close={() => setFiles(false)}
           useFile={setAttachment}
-        />
-      )}
-      {session && machine && (
-        <ConnectMachine
-          session={session}
-          machine={machine}
-          onConnected={setMachineConnected}
         />
       )}
       {live.reconnecting && (
@@ -295,10 +290,8 @@ export function SessionDetail({
               context={{ sessionId: id, agentId }}
             />
             <Composer
-              taskBrief={machine && !data.turns.length ? brief : undefined}
               onPendingChange={setMessagePending}
               attachment={attachment}
-              connectionPending={Boolean(machine) && !machineConnected}
               key={id}
               turnId={data.turns[0]?.id}
               session={data.session}
@@ -341,18 +334,9 @@ export function SessionDetail({
                 </pre>
               </details>
             )}
-            {session.required_actions.some(
-              (action) => !machine || action.type !== "environment_connection",
-            ) && (
+            {session.required_actions.length > 0 && (
               <pre className="max-h-64 overflow-auto text-base">
-                {JSON.stringify(
-                  session.required_actions.filter(
-                    (action) =>
-                      !machine || action.type !== "environment_connection",
-                  ),
-                  null,
-                  2,
-                )}
+                {JSON.stringify(session.required_actions, null, 2)}
               </pre>
             )}
           </DialogContent>

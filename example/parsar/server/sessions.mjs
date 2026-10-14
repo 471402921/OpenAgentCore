@@ -1,3 +1,4 @@
+import { runtimeEnvironment } from "./runtime-profile.mjs";
 import { sessionRestriction } from "../shared/session-profile.mjs";
 import { AppError, text, uuid } from "./store.mjs";
 
@@ -14,12 +15,11 @@ export function prepareSession(store, id, body) {
     throw new AppError(400, "Agent 绑定的资源已不可用。");
   if (new Set(mcps.map((mcp) => mcp.label)).size !== mcps.length)
     throw new AppError(400, "绑定的 MCP 服务标识不能重复。");
-  const environment = { type: runtime.environment };
-  const selfHosted = environment.type === "self_hosted";
+  const environment = runtimeEnvironment(runtime);
   const restriction = sessionRestriction(agent, runtime);
   if (restriction) throw new AppError(400, restriction);
   let modelProvider;
-  if (environment.type !== "none" && agent.harness !== "mcode") {
+  if (agent.harness !== "mcode") {
     const provider = store.get("providers", model.provider_id);
     if (!provider?.base_url?.startsWith("https://") || !provider.api_key)
       throw new AppError(
@@ -31,10 +31,6 @@ export function prepareSession(store, id, body) {
       base_url: provider.base_url,
       api_key: provider.api_key,
     };
-  }
-  if (selfHosted) {
-    environment.workspace_directory = runtime.workspace_directory;
-    environment.capability_directories = runtime.capability_directories || [];
   }
   const tools = [{ type: "web_search", mode: "disabled" }];
   if (agent.ask_user)
@@ -58,13 +54,12 @@ export function prepareSession(store, id, body) {
       type: "mcp",
       server_label: mcp.label,
       transport: { type: "http", server_url: mcp.url },
-      connection_origin:
-        environment.type === "none" ? "service" : "environment",
+      connection_origin: "environment",
       required: true,
       ...(mcp.credential_id ? { credential_id: mcp.credential_id } : {}),
     })),
   );
-  if (environment.type !== "none") {
+  {
     environment.skills = agent.skill_ids.map((skill_id) => ({
       type: "skill_reference",
       skill_id,
@@ -87,10 +82,7 @@ export function prepareSession(store, id, body) {
     JSON.stringify(images).length > 900000
   )
     throw new AppError(400, "图片格式或大小无效。");
-  if (
-    images.length &&
-    (agent.harness === "mcode" || environment.type === "none")
-  )
+  if (images.length && agent.harness === "mcode")
     throw new AppError(
       400,
       "当前运行配置不支持图片输入，请使用托管 Codex 或 Claude Code。",
@@ -110,7 +102,7 @@ export function prepareSession(store, id, body) {
     throw new AppError(400, "附件格式或大小无效。");
   if (files.length && environment.type !== "openai_hosted")
     throw new AppError(400, "附件需要托管运行时。");
-  if (files.length) environment.files = files;
+  if (files.length) environment.files.push(...files);
   const capabilities = (agent.capability_ids || []).map((id) => {
     const capability = store.get("capabilities", id);
     if (!capability || capability.deprecated)
@@ -163,7 +155,7 @@ export function prepareSession(store, id, body) {
     .filter(Boolean)
     .join("\n\n");
   const name = text(body.name, "会话名称", 80, true);
-  const input = selfHosted ? undefined : text(body.input, "消息", 100000, true);
+  const input = text(body.input, "消息", 100000, true);
   return {
     id,
     name,
@@ -176,7 +168,10 @@ export function prepareSession(store, id, body) {
       harness: agent.harness,
       environment: runtime.environment,
       environment_name: runtime.name,
-      workspace_directory: runtime.workspace_directory,
+      packages: runtime.packages || { npm: [], python: [] },
+      setup_configured: Boolean(runtime.setup_script),
+      env_names: Object.keys(runtime.env || {}),
+      file_paths: (runtime.files || []).map((file) => file.path),
       skills: agent.skill_ids.map((id) => ({
         id,
         version: agent.skill_versions?.[id] || null,
@@ -189,14 +184,6 @@ export function prepareSession(store, id, body) {
       })),
     },
     created_at: Math.floor(Date.now() / 1000),
-    ...(selfHosted
-      ? {
-          self_hosted: {
-            platform: runtime.platform,
-            workspace_directory: runtime.workspace_directory,
-          },
-        }
-      : {}),
     request: {
       agent: {
         model: model.model,
@@ -311,10 +298,7 @@ export async function requireSessionSettled(core, record) {
 
 export function requireAutomaticRuntime(store, id) {
   const runtime = store.get("runtimes", id || "");
-  if (!runtime || runtime.environment === "self_hosted")
-    throw new AppError(
-      400,
-      "自动执行需要托管或纯文本运行时；用户机器需在 Web 中连接后发送。",
-    );
+  if (!runtime || runtime.environment !== "openai_hosted")
+    throw new AppError(400, "请选择有效的托管环境模板。");
   return runtime;
 }

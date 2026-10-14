@@ -30,7 +30,6 @@ export function SessionPage({ id }: { id: string }) {
             key={query.data.core_session_id}
             id={query.data.core_session_id}
             agentId={query.data.agent_id}
-            machine={query.data.self_hosted}
             taskId={query.data.task_id}
             brief={query.data.brief}
             configuration={query.data.configuration}

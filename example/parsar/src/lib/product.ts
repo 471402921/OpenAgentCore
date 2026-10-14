@@ -22,10 +22,12 @@ export interface MCPProfile extends NamedResource {
   url: string;
 }
 export interface RuntimeProfile extends NamedResource {
-  environment: "none" | "openai_hosted" | "self_hosted";
-  platform?: "linux" | "macos" | "windows";
-  workspace_directory?: string;
-  capability_directories?: string[];
+  environment: "openai_hosted";
+  description?: string;
+  packages?: { npm?: string[]; python?: string[] };
+  setup_script?: string;
+  env?: Record<string, string | null>;
+  files?: { path: string; content: string }[];
 }
 export interface AgentProfile extends NamedResource {
   enabled?: boolean;
@@ -47,7 +49,10 @@ export interface SessionRecord {
     harness: CoreHarnessKind;
     environment: string;
     environment_name: string;
-    workspace_directory?: string;
+    packages?: { npm?: string[]; python?: string[] };
+    setup_configured?: boolean;
+    env_names?: string[];
+    file_paths?: string[];
     skills: { id: string; version: string | null }[];
     mcps: string[];
     capabilities: { name: string; kind: string; version: string }[];
@@ -63,10 +68,6 @@ export interface SessionRecord {
   runtime_id: string;
   created_at: number;
   core_session_id?: string;
-  self_hosted?: {
-    platform: "linux" | "macos" | "windows";
-    workspace_directory: string;
-  };
 }
 export class ProductError extends Error {
   constructor(

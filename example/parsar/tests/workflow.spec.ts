@@ -135,91 +135,56 @@ test.beforeEach(async ({ request }) => {
   await request.post("http://127.0.0.1:18181/reset");
 });
 
-for (const platform of [
-  {
-    label: "macOS",
-    path: "/Users/example/project",
-    command: "bash fixture-native-bootstrap.sh",
-  },
-  {
-    label: "Windows",
-    path: "C:\\Users\\example\\project",
-    command: "& fixture-native-bootstrap.ps1",
-  },
-])
-  test(`self-hosted ${platform.label} uses Core's command and waits before sending`, async ({
-    page,
-    request,
-  }) => {
-    await resources(page);
-    await navigate(page, "模型");
-    await page.getByRole("button", { name: "编辑 Provider Moonshot" }).click();
-    await page.getByLabel("Base URL").fill("https://provider.example/v1");
-    await page.getByRole("button", { name: "手动选择", exact: true }).click();
-    await page.getByRole("button", { name: "保存", exact: true }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await navigate(page, "运行时");
-    await page.getByRole("button", { name: "添加环境模板" }).click();
-    await page.getByLabel("名称", { exact: true }).fill("我的 Mac");
-    await page.getByLabel("环境类型").click();
-    await page.getByRole("option", { name: "用户机器", exact: true }).click();
-    await page.getByLabel("机器平台").click();
-    await page
-      .getByRole("option", { name: platform.label, exact: true })
-      .click();
-    await page.getByLabel("工作目录", { exact: true }).fill(platform.path);
-    await page.getByRole("button", { name: "保存", exact: true }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await navigate(page, "Agents");
-    await page.getByRole("button", { name: "新建 Agent" }).click();
-    await page.getByLabel("Agent 名称").fill("本机助手");
-    await page.getByLabel("模型", { exact: true }).click();
-    await page
-      .getByRole("option", { name: "Moonshot / Kimi", exact: true })
-      .click();
-    await page.getByRole("button", { name: "保存", exact: true }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await page.getByRole("link", { name: "打开", exact: true }).click();
-    await page.getByRole("button", { name: "开始会话", exact: true }).click();
-    await page.getByLabel("会话名称").fill("本地会话");
-    await page.getByLabel("环境模板", { exact: true }).click();
-    await page.getByRole("option", { name: "我的 Mac", exact: true }).click();
-    await expect(page.getByLabel("第一条消息")).toHaveCount(0);
-    await page.getByRole("button", { name: "开始", exact: true }).click();
-    await expect(page.getByText("等待连接", { exact: true })).toBeVisible();
-    await page.getByLabel("继续对话").fill("hello");
-    await expect(
-      page.getByRole("button", { name: "发送", exact: true }),
-    ).toBeDisabled();
-    await page
-      .getByRole("button", { name: "连接用户机器", exact: true })
-      .click();
-    await expect(page.getByRole("dialog")).toContainText(platform.command);
-    await expect(page.getByRole("dialog")).toContainText(platform.path);
-    const sessionRoute = "**/v1/agents/sessions/*";
-    await page.route(sessionRoute, async (route) => {
-      const response = await route.fetch();
-      const body = await response.json();
-      body.x_agents_core.installation.expires_at = 1;
-      await route.fulfill({ response, json: body });
-    });
-    await expect(page.getByRole("dialog")).toContainText("安装命令暂不可用");
-    await expect(
-      page.getByRole("button", { name: "复制命令", exact: true }),
-    ).toHaveCount(0);
-    await page.unroute(sessionRoute);
-    await expect(page.getByRole("dialog")).toContainText(platform.command);
-    await page.getByRole("button", { name: "Close", exact: true }).click();
-    await request.post("http://127.0.0.1:18181/connect-executor");
-    await expect(page.getByText("已连接", { exact: true })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "发送", exact: true }),
-    ).toBeEnabled();
-    await page.reload();
-    await expect(
-      page.getByRole("button", { name: "连接用户机器", exact: true }),
-    ).toBeVisible();
-  });
+test("environment template edits preparation and hides saved variable values", async ({
+  page,
+  request,
+}) => {
+  await resources(page);
+  await navigate(page, "运行时");
+  await page.getByRole("button", { name: "添加环境模板" }).click();
+  await expect(page.getByLabel("环境类型")).toHaveCount(0);
+  await page.getByLabel("名称", { exact: true }).fill("飞书办公");
+  await page.getByLabel("用途说明").fill("预装办公工具");
+  await page.getByLabel("npm 软件包").fill("typescript@5.8.3");
+  await page.getByLabel("Python 软件包").fill("packaging==26.0");
+  await page.getByLabel("初始化脚本").fill("set -eu\nmkdir -p outputs");
+  await page.getByRole("button", { name: "添加变量" }).click();
+  await page.getByLabel("变量名称").fill("OFFICE_TOKEN");
+  await page.getByLabel("变量值").fill("private-fixture-token");
+  await page.getByRole("button", { name: "添加文件", exact: true }).click();
+  await page.getByLabel("文件路径").fill("/workspace/settings.txt");
+  await page.getByLabel("文件内容").fill("office=true");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "编辑 飞书办公" }).click();
+  await expect(page.getByLabel("初始化脚本")).toHaveValue(
+    "set -eu\nmkdir -p outputs",
+  );
+  await expect(page.getByLabel("变量值")).toHaveValue("");
+  await expect(page.getByLabel("变量值")).toHaveAttribute(
+    "placeholder",
+    "已配置，留空保留",
+  );
+  await page.getByLabel("变量值").fill("discard-this-replacement");
+  await page.getByLabel("变量值").fill("");
+  const saved = page.waitForRequest(
+    (request) =>
+      request.method() === "PUT" && request.url().includes("/app/runtimes/"),
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  expect((await saved).postDataJSON().env).toEqual({ OFFICE_TOKEN: null });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const rows = await (
+    await request.get("http://127.0.0.1:18180/app/runtimes")
+  ).json();
+  const template = rows.find(
+    (row: { name: string }) => row.name === "飞书办公",
+  );
+  expect(template.env).toEqual({ OFFICE_TOKEN: null });
+  expect(template.files).toEqual([
+    { path: "/workspace/settings.txt", content: "office=true" },
+  ]);
+});
 test("Agent to multiple independent Sessions, continuation and cancellation", async ({
   page,
   request,
@@ -605,35 +570,19 @@ test("Session uploads insert a file path and download binary artifacts without l
   );
 });
 
-test("unsupported runtime bindings are explained before Session creation", async ({
-  page,
+test("unsupported environment placements reject before execution", async ({
   request,
 }) => {
-  await resources(page);
-  await agent(page);
-  const runtime = await request.put(
-    "http://127.0.0.1:18180/app/runtimes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    {
-      headers: { origin: "http://127.0.0.1:18180" },
-      data: { name: "纯文本", environment: "none" },
-    },
-  );
-  expect(runtime.ok()).toBe(true);
-  await page.getByRole("link", { name: "打开", exact: true }).click();
-  await page.getByRole("button", { name: "开始会话", exact: true }).click();
-  await page.getByLabel("会话名称").fill("Blocked");
-  await page.getByLabel("环境模板", { exact: true }).click();
-  await page.getByRole("option", { name: "纯文本", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText(
-    "Skills 需要托管运行环境",
-  );
-  await expect(
-    page.getByRole("button", { name: "开始", exact: true }),
-  ).toBeDisabled();
-  const counts = await (
-    await request.get("http://127.0.0.1:18181/counts")
-  ).json();
-  expect(counts.sessions).toHaveLength(0);
+  for (const environment of ["none", "self_hosted"]) {
+    const response = await request.put(
+      "http://127.0.0.1:18180/app/runtimes/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      {
+        headers: { origin: "http://127.0.0.1:18180" },
+        data: { name: "Unsupported", environment },
+      },
+    );
+    expect(response.status()).toBe(400);
+  }
 });
 
 test("a send completed after leaving the Session does not restore a sent draft", async ({

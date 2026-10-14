@@ -53,7 +53,11 @@ async function setup(t) {
   const api = productAPI(store, core);
   const put = (kind, body, id = randomUUID()) =>
     api("PUT", `/app/${kind}/${id}`, body);
-  const provider = await put("providers", { name: "Provider" });
+  const provider = await put("providers", {
+    name: "Provider",
+    base_url: "https://models.example/v1",
+    api_key: "test-provider-key",
+  });
   const model = await put("models", {
     name: "Model",
     provider_id: provider.id,
@@ -67,7 +71,10 @@ async function setup(t) {
     skill_ids: [],
     mcp_ids: [],
   });
-  const runtime = await put("runtimes", { name: "Text", environment: "none" });
+  const runtime = await put("runtimes", {
+    name: "Text",
+    environment: "openai_hosted",
+  });
   const project = await put("projects", {
     name: "Website",
     description: "Accessible UI",
@@ -847,7 +854,7 @@ test("automatic Feishu dispatch revalidates a runtime edited after bot setup", a
   assert.equal(f.receipts.size, 0);
   const receipt = f.store.list("feishu_inbound")[0];
   assert.equal(receipt.state, "failed");
-  assert.match(receipt.error, /自动执行/);
+  assert.match(receipt.error, /托管环境模板/);
 });
 
 test("a new schedule ignores unrelated standalone Sessions when checking overlap", async (t) => {
@@ -1817,7 +1824,7 @@ test("Feishu inherits defaults for new topics, freezes existing topics, and vali
   assert.equal(thread.runtime_id, f.runtime.id);
   const other = await f.put("runtimes", {
     name: "Another text environment",
-    environment: "none",
+    environment: "openai_hosted",
   });
   await f.api("PUT", `/app/agents/${agent.id}`, {
     ...agent,

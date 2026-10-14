@@ -12,16 +12,12 @@ import { api } from "./lib/api";
 import { ErrorNotice } from "./components/shared";
 export function Composer({
   session,
-  taskBrief,
   turnId,
-  connectionPending = false,
   attachment = "",
   onPendingChange,
 }: {
   session: AgentSession;
-  taskBrief?: string;
   turnId?: string;
-  connectionPending?: boolean;
   attachment?: string;
   onPendingChange?: (pending: boolean) => void;
 }) {
@@ -120,24 +116,11 @@ export function Composer({
           {tr("已请求取消，等待执行结束。")}
         </p>
       )}
-      {taskBrief && (
-        <button
-          className="mb-3 text-sm underline"
-          onClick={() => {
-            if (!text || confirm(tr("用任务说明替换当前草稿？")))
-              setText(taskBrief);
-          }}
-          disabled={!!pending || running || send.isPending}
-        >
-          {tr("填入任务说明，连接后发送")}
-        </button>
-      )}
       <form
         className="rounded-2xl bg-surface-muted p-4 focus-within:ring-1 focus-within:ring-line-strong"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!connectionPending && text.trim() && !running && !send.isPending)
-            send.mutate();
+          if (text.trim() && !running && !send.isPending) send.mutate();
         }}
       >
         <textarea
@@ -176,10 +159,7 @@ export function Composer({
               type="submit"
               aria-label={pending ? tr("重试发送") : tr("发送")}
               disabled={
-                connectionPending ||
-                !text.trim() ||
-                send.isPending ||
-                session.status === "failed"
+                !text.trim() || send.isPending || session.status === "failed"
               }
               className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-emphasis text-fg-on-emphasis disabled:opacity-40"
             >

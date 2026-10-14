@@ -45,7 +45,7 @@ export function Skills() {
         </Button>
         <Help>
           {tr(
-            "Skills 是可复用的执行方法。上传 ZIP，或用 SKILL.md 创建。绑定到 Agent 后，托管任务会加载这些技能；纯文本环境不支持。",
+            "Skills 是可复用的执行方法。上传 ZIP，或用 SKILL.md 创建；绑定到 Agent 后，每个新会话自动加载。",
           )}
         </Help>
         <Button variant="outline" asChild>

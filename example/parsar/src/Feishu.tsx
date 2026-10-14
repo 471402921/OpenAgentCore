@@ -381,7 +381,7 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
             >
               <SelectOption value="">{tr("使用 Agent 默认环境")}</SelectOption>
               {runtimes.data
-                ?.filter((row) => row.environment !== "self_hosted")
+                ?.filter((row) => row.environment === "openai_hosted")
                 .map((row) => (
                   <SelectOption key={row.id} value={row.id}>
                     {row.name}
@@ -398,9 +398,7 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
               ? tr("请选择 Agent")
               : !runtime
                 ? tr("Agent 未配置有效的默认环境模板。")
-                : runtime.environment === "self_hosted"
-                  ? tr("飞书需要可自动启动的环境，请选择托管沙箱或纯文本环境。")
-                  : sessionRestriction(agent, runtime);
+                : sessionRestriction(agent, runtime);
             return (
               <p className="mt-2 text-xs text-fg-muted">
                 {issue ||

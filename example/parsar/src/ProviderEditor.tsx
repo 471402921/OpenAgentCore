@@ -240,7 +240,7 @@ function ProviderForm({
               <span>{tr("模型连接")}</span>
               <Help>
                 {tr(
-                  "地址和密钥用于获取此 Provider 的模型列表。密钥仅保存在本机后端，不返回浏览器。Codex 和 Claude Code 的托管及用户机器会话使用此连接；纯文本和 MiniMax Code 使用 Core 部署的连接。",
+                  "地址和密钥用于获取模型列表。密钥仅保存在后端，不返回浏览器。Codex 和 Claude Code 使用此连接；MiniMax Code 使用部署配置的连接。",
                 )}
               </Help>
             </div>

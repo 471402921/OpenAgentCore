@@ -1,3 +1,4 @@
+import { EnvironmentFields, environmentSummary } from "./EnvironmentFields";
 import catalog from "./lib/mcp-catalog.json";
 import { tr } from "./lib/i18n";
 import { useVaults } from "./Credentials";
@@ -80,10 +81,10 @@ function ResourceList({
         <Help>
           {kind === "mcps"
             ? tr(
-                "配置 HTTPS MCP 服务，可绑定凭据库中的凭据。沙箱和用户机器从工作区连接，纯文本会话从 Core 连接。",
+                "配置 HTTPS MCP 服务，可绑定凭据库中的凭据。Agent 从工作环境连接服务。",
               )
             : tr(
-                "环境模板定义任务在哪里运行。用户机器保存平台和工作目录，每个会话单独连接；连接状态请在会话中查看。",
+                "环境模板定义任务开始前需要准备的软件包、文件、变量和初始化脚本。将模板绑定到 Agent 后，每个新会话自动准备。",
               )}
         </Help>
         <Button
@@ -209,26 +210,11 @@ function ResourceList({
                 </Button>
               </div>
               <p className="w-1/3 truncate text-xs text-fg-muted">
-                {"url" in row
-                  ? row.url
-                  : row.environment === "none"
-                    ? tr("纯文本环境")
-                    : row.environment === "self_hosted"
-                      ? tr("用户机器 \u00B7 {{value0}}", {
-                          value0:
-                            row.platform === "macos"
-                              ? "macOS"
-                              : row.platform === "windows"
-                                ? "Windows"
-                                : "Linux",
-                        })
-                      : tr("Core 托管沙箱")}
+                {"url" in row ? row.url : environmentSummary(row)}
               </p>
               {"environment" in row && (
                 <div className="w-1/4 text-xs text-fg-muted">
-                  <p className="truncate" title={row.workspace_directory}>
-                    {row.workspace_directory || tr("由环境分配工作目录")}
-                  </p>
+                  <p className="truncate">{row.description}</p>
                   <p>
                     {tr("引用此模板的 Agent")}:{" "}
                     {agents.data
@@ -275,7 +261,22 @@ export function ResourceEditor({
   const [form, setForm] = useState(value);
   const cache = useQueryClient();
   const save = useMutation({
-    mutationFn: () => product(`${kind}/${form.id}`, "PUT", form),
+    mutationFn: () =>
+      product(
+        `${kind}/${form.id}`,
+        "PUT",
+        "environment" in form
+          ? {
+              ...form,
+              packages: Object.fromEntries(
+                Object.entries(form.packages || {}).map(([manager, values]) => [
+                  manager,
+                  values.map((v) => v.trim()).filter(Boolean),
+                ]),
+              ),
+            }
+          : form,
+      ),
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: [kind] });
       onSaved?.(form.id);
@@ -289,7 +290,10 @@ export function ResourceEditor({
         if (!open && !save.isPending) close();
       }}
     >
-      <DialogContent aria-describedby={undefined}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="max-h-[90dvh] max-w-2xl overflow-y-auto"
+      >
         <DialogHeader>
           <DialogTitle>
             {value.revision ? tr("编辑") : tr("添加")}
@@ -354,93 +358,7 @@ export function ResourceEditor({
               </Field>
             </>
           ) : (
-            <>
-              <Field label={tr("环境类型")} id="runtime-environment">
-                <Select
-                  id="runtime-environment"
-                  value={form.environment}
-                  onValueChange={(environment) =>
-                    setForm({
-                      ...form,
-                      environment: environment as RuntimeProfile["environment"],
-                    })
-                  }
-                >
-                  <SelectOption value="openai_hosted">
-                    {tr("Core 托管沙箱")}
-                  </SelectOption>
-                  <SelectOption value="self_hosted">
-                    {tr("用户机器")}
-                  </SelectOption>
-                  <SelectOption value="none">{tr("纯文本环境")}</SelectOption>
-                </Select>
-              </Field>
-              {form.environment === "self_hosted" && (
-                <>
-                  <Field label={tr("机器平台")} id="runtime-platform">
-                    <Select
-                      id="runtime-platform"
-                      value={form.platform || ""}
-                      onValueChange={(platform) =>
-                        setForm({
-                          ...form,
-                          platform: platform as RuntimeProfile["platform"],
-                        })
-                      }
-                    >
-                      <SelectOption value="">{tr("选择平台")}</SelectOption>
-                      <SelectOption value="linux">Linux</SelectOption>
-                      <SelectOption value="macos">macOS</SelectOption>
-                      <SelectOption value="windows">Windows</SelectOption>
-                    </Select>
-                  </Field>
-                  <Field label={tr("工作目录")} id="runtime-workspace">
-                    <Input
-                      id="runtime-workspace"
-                      required
-                      value={form.workspace_directory || ""}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          workspace_directory: e.target.value,
-                        })
-                      }
-                      placeholder={
-                        form.platform === "windows"
-                          ? "C:\\Users\\you\\project"
-                          : "/home/you/project"
-                      }
-                    />
-                  </Field>
-                  <Field
-                    label={tr("本地能力目录（选填）")}
-                    id="runtime-capabilities"
-                  >
-                    <Input
-                      id="runtime-capabilities"
-                      value={form.capability_directories?.[0] || ""}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          capability_directories: e.target.value
-                            ? [e.target.value]
-                            : [],
-                        })
-                      }
-                      placeholder={tr("包含 Skill 或 Plugin 的绝对目录")}
-                    />
-                  </Field>
-                  <div className="flex items-center gap-2 text-base">
-                    {tr("机器访问权限")}
-                    <Help>
-                      {tr(
-                        "daemon 以启动用户的权限执行，可访问该用户有权访问的文件和网络。工作目录必须已存在。Windows 当前支持 Codex 和 Claude Code。",
-                      )}
-                    </Help>
-                  </div>
-                </>
-              )}
-            </>
+            <EnvironmentFields value={form} onChange={setForm} />
           )}
           <ErrorNotice error={save.error} />
         </form>
