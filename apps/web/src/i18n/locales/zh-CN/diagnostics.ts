@@ -60,6 +60,7 @@ export const diagnostics = {
   setupIndex: "第 {{number}} 条设置命令。",
   exitCode: "退出码 {{code}}。",
   httpStatus: "HTTP {{status}}。",
+  unreachableHost: "再确认 Session 的沙箱（自托管 Session 则为其主机）能解析并访问该 URL 的主机。",
   step: { setup: "设置", python: "Python 依赖", npm: "npm 依赖", system: "系统软件包", file: "文件准备", skill: "Skill 准备" },
   unavailable: "失败详情不可用",
   unavailableHelp: "诊断读取失败或与当前状态不一致，请刷新后重试。",

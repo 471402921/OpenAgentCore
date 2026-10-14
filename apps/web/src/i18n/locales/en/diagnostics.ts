@@ -60,6 +60,7 @@ export const diagnostics = {
   setupIndex: "Setup command {{number}}.",
   exitCode: "Exit code {{code}}.",
   httpStatus: "HTTP {{status}}.",
+  unreachableHost: "Then check that the URL's host resolves and is reachable from the Session's sandbox, or from the host of a self-hosted Session.",
   step: { setup: "setup", python: "Python dependencies", npm: "npm dependencies", system: "system packages", file: "file preparation", skill: "Skill preparation" },
   unavailable: "Failure details unavailable",
   unavailableHelp: "The diagnostics read failed or no longer matches this status. Refresh to check again.",
