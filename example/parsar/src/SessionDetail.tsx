@@ -32,10 +32,14 @@ export function SessionDetail({
   id,
   agentId,
   machine,
+  taskId,
+  brief,
 }: {
   id: string;
   agentId: string;
   machine?: SessionRecord["self_hosted"];
+  taskId?: string;
+  brief?: string;
 }) {
   const timing = useSendTiming(id);
   const [info, setInfo] = useState(false);
@@ -75,7 +79,10 @@ export function SessionDetail({
     <>
       <header className="flex h-16 shrink-0 items-center gap-3 border-b border-line px-6">
         <Button asChild variant="ghost" size="icon">
-          <a href={`#/agents/${agentId}`} aria-label="返回 Agent">
+          <a
+            href={taskId ? `#/tasks/${taskId}` : `#/agents/${agentId}`}
+            aria-label={taskId ? "返回任务" : "返回 Agent"}
+          >
             <ArrowLeft />
           </a>
         </Button>
@@ -204,6 +211,7 @@ export function SessionDetail({
               </div>
             )}
             <Composer
+              taskBrief={machine && !data.turns.length ? brief : undefined}
               onPendingChange={setMessagePending}
               attachment={attachment}
               connectionPending={Boolean(machine) && !machineConnected}
@@ -239,6 +247,16 @@ export function SessionDetail({
                 {session.usage?.total_tokens ?? "未报告"}
               </Property>
             </PropertyList>
+            {brief && (
+              <details className="mt-4">
+                <summary className="cursor-pointer text-sm">
+                  本次执行的任务说明
+                </summary>
+                <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-sm">
+                  {brief}
+                </pre>
+              </details>
+            )}
             {session.required_actions.some(
               (action) => !machine || action.type !== "environment_connection",
             ) && (

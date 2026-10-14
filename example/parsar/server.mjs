@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildDirectory } from "./paths.mjs";
 import { openStore, dataPath, AppError } from "./server/store.mjs";
 import { productAPI } from "./server/product.mjs";
+import { scheduleWorker } from "./server/schedules.mjs";
+import { feishuWorker, createFeishuTransport } from "./server/feishu.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const routes = [
@@ -43,13 +45,13 @@ const mime = {
 };
 
 export function configuration(env = process.env) {
-  const target = new URL(env.OAC_EXAMPLE_CORE_URL || "http://127.0.0.1:8091");
+  const target = new URL(env.OPENAI_BASE_URL || "http://127.0.0.1:8091/v1");
   if (
     target.username ||
     target.password ||
     target.search ||
     target.hash ||
-    target.pathname !== "/" ||
+    !["/v1", "/v1/"].includes(target.pathname) ||
     !(
       target.protocol === "https:" ||
       (target.protocol === "http:" &&
@@ -57,12 +59,12 @@ export function configuration(env = process.env) {
     )
   ) {
     throw new Error(
-      "OAC_EXAMPLE_CORE_URL must be an HTTPS origin, or a loopback HTTP origin, without /v1.",
+      "OPENAI_BASE_URL must be an HTTPS URL, or a loopback HTTP URL, ending in /v1.",
     );
   }
-  const key = env.OAC_EXAMPLE_PROJECT_KEY?.trim();
+  const key = env.OPENAI_API_KEY?.trim();
   if (!key || /[\r\n]/.test(key))
-    throw new Error("Set OAC_EXAMPLE_PROJECT_KEY to a Project API key.");
+    throw new Error("Set OPENAI_API_KEY to a Project API key.");
   const port = Number(env.OAC_EXAMPLE_PORT || 18180);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Invalid OAC_EXAMPLE_PORT.");
@@ -77,39 +79,43 @@ function fail(res, status, message) {
   res.end(JSON.stringify({ error: { message } }));
 }
 
+export function coreClient(config, fetchImpl = fetch) {
+  return async (path, method, body, key) => {
+    const response = await fetchImpl(`${config.target}${path}`, {
+      method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+      headers: {
+        ...(key ? { "Idempotency-Key": key } : {}),
+        Authorization: `Bearer ${config.key}`,
+        "OpenAI-Beta": "agents=v1",
+        "Content-Type": "application/json",
+      },
+    });
+    if (response.status >= 300 && response.status < 400)
+      throw new AppError(502, "Core returned a redirect.");
+    const value =
+      response.status === 202 || response.status === 204
+        ? undefined
+        : await response.json();
+    if (!response.ok)
+      throw new AppError(
+        response.status,
+        value.error?.message || "Core request failed.",
+        value.error?.code,
+      );
+    return value;
+  };
+}
+
 export function createHandler(
   config,
-  { fetchImpl = fetch, frontend, store } = {},
+  { fetchImpl = fetch, frontend, store, productHandler } = {},
 ) {
   const product =
-    store &&
-    productAPI(
-      store,
-      async (path, method, body, key) => {
-        const response = await fetchImpl(`${config.target}${path}`, {
-          method,
-          body: JSON.stringify(body),
-          redirect: "manual",
-          signal: AbortSignal.timeout(30_000),
-          headers: {
-            ...(key ? { "Idempotency-Key": key } : {}),
-            Authorization: `Bearer ${config.key}`,
-            "OpenAI-Beta": "agents=v1",
-            "Content-Type": "application/json",
-          },
-        });
-        if (response.status >= 300 && response.status < 400)
-          throw new AppError(502, "Core returned a redirect.");
-        const value = await response.json();
-        if (!response.ok)
-          throw new AppError(
-            response.status,
-            value.error?.message || "Core request failed.",
-          );
-        return value;
-      },
-      fetchImpl,
-    );
+    productHandler ||
+    (store && productAPI(store, coreClient(config, fetchImpl), fetchImpl));
   return async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
@@ -339,15 +345,31 @@ if (
       })
     : undefined;
   const store = openStore(dataPath(config));
+  const core = coreClient(config);
+  const productHandler = productAPI(store, core);
+  const feishu = feishuWorker(
+    store,
+    core,
+    productHandler,
+    createFeishuTransport,
+  );
+  feishu.start();
+  const schedules = scheduleWorker(store, productHandler, core);
+  schedules.start();
   server.on(
     "request",
-    createHandler(config, { frontend: vite?.middlewares, store }),
+    createHandler(config, {
+      frontend: vite?.middlewares,
+      store,
+      productHandler,
+    }),
   );
   server.listen(config.port, "127.0.0.1", () => {
     process.stdout.write(`Parsar: http://127.0.0.1:${config.port}\n`);
   });
   for (const signal of ["SIGINT", "SIGTERM"])
-    process.on(signal, () => {
+    process.on(signal, async () => {
+      await Promise.all([feishu.stop(), schedules.stop()]);
       server.close(() => store.close());
       void vite?.close();
     });

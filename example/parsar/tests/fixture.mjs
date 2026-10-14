@@ -382,6 +382,7 @@ createServer(async (req, res) => {
       const base = { turn_id: turn.id, output_index: 0 };
       const text = { ...base, item_id: item.id, content_index: 0 };
       setTimeout(() => {
+        if (!histories.has(session.id)) return;
         emit(session, { ...base, type: "agent.session.turn.item.added", item });
         emit(session, {
           ...text,
@@ -390,6 +391,7 @@ createServer(async (req, res) => {
         });
       }, 250);
       setTimeout(() => {
+        if (!histories.has(session.id)) return;
         emit(session, {
           ...text,
           type: "agent.session.turn.output_text.delta",

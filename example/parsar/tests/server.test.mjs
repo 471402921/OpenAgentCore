@@ -113,19 +113,19 @@ test("configuration keeps remote credentials on HTTPS and requires a project key
   for (const target of [
     "http://remote.example",
     "https://user:pass@core.example",
-    "https://core.example/v1",
+    "https://core.example/",
     "https://core.example/?token=x",
   ]) {
     assert.throws(() =>
       configuration({
-        OAC_EXAMPLE_CORE_URL: target,
-        OAC_EXAMPLE_PROJECT_KEY: "key",
+        OPENAI_BASE_URL: target,
+        OPENAI_API_KEY: "key",
       }),
     );
   }
   assert.throws(() => configuration({}));
   assert.equal(
-    configuration({ OAC_EXAMPLE_PROJECT_KEY: "key" }).target,
+    configuration({ OPENAI_API_KEY: "key" }).target,
     "http://127.0.0.1:8091",
   );
 });

@@ -1,5 +1,8 @@
 import { providerAPI, publicProvider } from "./providers.mjs";
 import { runtimeProfile } from "./runtime-profile.mjs";
+import { scheduleAPI } from "./schedules.mjs";
+import { feishuAPI } from "./feishu.mjs";
+import { workAPI } from "./work.mjs";
 import { sessionAPI } from "./sessions.mjs";
 import { AppError, text, uuid } from "./store.mjs";
 
@@ -49,6 +52,9 @@ export function productAPI(store, core, fetchImpl = fetch) {
     }
     return row;
   };
+  const schedules = scheduleAPI(store);
+  const feishu = feishuAPI(store);
+  const work = workAPI(store, core, sessions);
   const providers = providerAPI(store, fetchImpl);
   const touchProviders = (...ids) => {
     for (const id of new Set(ids.filter(Boolean))) {
@@ -71,6 +77,12 @@ export function productAPI(store, core, fetchImpl = fetch) {
     return [...new Set(ids.map((id) => requireReference(kind, id)))];
   };
   return async (method, path, body) => {
+    if (path === "/app/schedules" || path.startsWith("/app/schedules/"))
+      return schedules(method, path, body);
+    if (path === "/app/feishu" || path.startsWith("/app/feishu/"))
+      return feishu(method, path, body);
+    if (/^\/app\/(projects|tasks)(?:\/|$)/.test(path))
+      return work(method, path, body);
     if (path === "/app/providers/discover" && method === "POST")
       return providers.discover(body);
     const match = path.match(/^\/app\/([a-z]+)(?:\/([a-f0-9-]{36}))?$/);
@@ -98,6 +110,14 @@ export function productAPI(store, core, fetchImpl = fetch) {
     const previous = store.get(kind, id);
     if (method === "DELETE") {
       const used =
+        store
+          .get("feishu", "settings")
+          ?.routes.some(
+            (row) => row.agent_id === id || row.runtime_id === id,
+          ) ||
+        store
+          .list("tasks")
+          .some((row) => row.agent_id === id || row.runtime_id === id) ||
         store.list("models").some((row) => row.provider_id === id) ||
         store
           .list("agents")
@@ -108,6 +128,11 @@ export function productAPI(store, core, fetchImpl = fetch) {
       if (used) throw new AppError(409, "资源仍被引用，请先调整绑定。");
       store.transaction(() => {
         store.remove(kind, id);
+        if (kind === "agents")
+          for (const selection of store.list("feishu_selections")) {
+            if (selection.agent_id === id)
+              store.remove("feishu_selections", selection.id);
+          }
         if (kind === "models") touchProviders(previous?.provider_id);
       });
       return {};

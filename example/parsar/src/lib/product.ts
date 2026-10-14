@@ -31,6 +31,8 @@ export interface AgentProfile extends NamedResource {
   mcp_ids: string[];
 }
 export interface SessionRecord {
+  task_id?: string;
+  brief?: string;
   id: string;
   name: string;
   agent_id: string;
@@ -79,3 +81,34 @@ export const harnessNames = {
   codex: "Codex",
   mcode: "MiniMax Code",
 };
+
+export interface ProjectRecord extends NamedResource {
+  description: string;
+  repository: string;
+  created_at: number;
+  updated_at: number;
+}
+import { taskStatuses, taskPriorities } from "../../shared/work-profile.mjs";
+export { taskStatuses, taskPriorities };
+export interface TaskRecord extends NamedResource {
+  description: string;
+  project_id: string;
+  agent_id: string;
+  runtime_id: string;
+  status: keyof typeof taskStatuses;
+  priority: keyof typeof taskPriorities;
+  created_at: number;
+  updated_at: number;
+}
+export interface TaskActivity {
+  id: string;
+  task_id: string;
+  type: string;
+  message: string;
+  created_at: number;
+  from?: TaskRecord["status"];
+  to?: TaskRecord["status"];
+  session_id?: string;
+}
+export const useProjects = () => useResources<ProjectRecord>("projects");
+export const useTasks = () => useQuery({ queryKey: ["tasks"], queryFn: () => product<TaskRecord[]>("tasks"), refetchInterval: 5000 });

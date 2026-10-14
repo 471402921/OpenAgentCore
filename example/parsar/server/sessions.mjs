@@ -2,7 +2,7 @@ import { sessionRestriction } from "../shared/session-profile.mjs";
 import { zipSync, strToU8 } from "fflate";
 import { AppError, text, uuid } from "./store.mjs";
 
-function requestFor(store, id, body) {
+export function prepareSession(store, id, body) {
   const agent = store.get("agents", body.agent_id);
   const runtime = store.get("runtimes", body.runtime_id);
   if (!agent || !runtime)
@@ -127,7 +127,7 @@ export function sessionAPI(store, core) {
     let row = store.get("sessions", id);
     if (row?.core_session_id) return row;
     if (!row) {
-      row = requestFor(store, id, body);
+      row = prepareSession(store, id, body);
       store.put("sessions", row);
     }
     try {
@@ -161,4 +161,35 @@ export function sessionAPI(store, core) {
       );
     return running.get(id);
   };
+}
+
+export async function requireSessionSettled(core, record) {
+  if (!record.core_session_id)
+    throw new AppError(409, "上次执行尚未确认，请先恢复创建。");
+  const prefix = `/v1/agents/sessions/${record.core_session_id}`;
+  const [session, turns] = await Promise.all([
+    core(prefix, "GET"),
+    core(`${prefix}/turns?order=desc&limit=1`, "GET"),
+  ]);
+  if (
+    session.status !== "failed" &&
+    !(
+      session.status === "idle" &&
+      ["completed", "failed", "cancelled"].includes(turns.data?.[0]?.status)
+    )
+  )
+    throw new AppError(
+      409,
+      "Agent 仍在准备、执行或等待处理，请先打开会话继续或取消。",
+    );
+}
+
+export function requireAutomaticRuntime(store, id) {
+  const runtime = store.get("runtimes", id || "");
+  if (!runtime || runtime.environment === "self_hosted")
+    throw new AppError(
+      400,
+      "自动执行需要托管或纯文本运行时；用户机器需在 Web 中连接后发送。",
+    );
+  return runtime;
 }

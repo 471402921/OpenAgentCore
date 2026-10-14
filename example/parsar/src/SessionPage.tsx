@@ -24,12 +24,22 @@ export function SessionPage({ id }: { id: string }) {
         id={query.data.core_session_id}
         agentId={query.data.agent_id}
         machine={query.data.self_hosted}
+        taskId={query.data.task_id}
+        brief={query.data.brief}
       />
     );
   return (
     <div className="p-6">
       <Button asChild variant="ghost">
-        <a href={`#/agents/${query.data?.agent_id || ""}`}>返回 Agent</a>
+        <a
+          href={
+            query.data?.task_id
+              ? `#/tasks/${query.data.task_id}`
+              : `#/agents/${query.data?.agent_id || ""}`
+          }
+        >
+          {query.data?.task_id ? "返回任务" : "返回 Agent"}
+        </a>
       </Button>
       <ErrorNotice error={query.error || resume.error} />
       <EmptyState title={query.isPending ? "正在加载…" : "会话创建尚未确认"} />

@@ -85,6 +85,16 @@ test.beforeEach(async ({ request }) => {
   );
   for (const kind of [
     "sessions",
+    "projects",
+    "tasks",
+    "activity",
+    "feishu",
+    "feishu_inbound",
+    "feishu_outbound",
+    "feishu_threads",
+    "feishu_selections",
+    "feishu_health",
+    "schedules",
     "agents",
     "instances",
     "templates",
@@ -563,4 +573,72 @@ test("a send completed after leaving the Session does not restore a sent draft",
   await expect.poll(() => page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("oac-example-message-")).length)).toBe(0);
   await page.goto(sessionURL);
   await expect(page.getByLabel("继续对话")).toHaveValue("");
+});
+
+test("project task dispatch, discussion, review, schedules and Feishu configuration form a complete product flow", async ({ page }, testInfo) => {
+  await resources(page); await agent(page);
+  await navigate(page,"项目");
+  await page.getByRole("button",{name:"新建项目",exact:true}).click();
+  await page.getByLabel("项目名称").fill("Website launch");
+  await page.getByLabel("项目背景").fill("Accessible engineering workspace");
+  await page.getByLabel("仓库地址（可选）").fill("https://github.com/example/website");
+  await page.getByRole("button",{name:"保存",exact:true}).click();
+  await page.getByRole("link",{name:"Website launch",exact:true}).click();
+  await page.getByRole("button",{name:"新建任务",exact:true}).click();
+  await page.getByLabel("任务标题").fill("Verify login keyboard flow");
+  await page.getByLabel("任务说明").fill("Check focus order and return a concise verification report.");
+  await page.getByLabel("执行 Agent",{exact:true}).click();
+  await page.getByRole("option",{name:"审查助手",exact:true}).click();
+  await page.getByLabel("任务运行时",{exact:true}).click();
+  await page.getByRole("option",{name:"开发沙箱",exact:true}).click();
+  await page.getByRole("button",{name:"保存任务",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Verify login keyboard flow",exact:true})).toBeVisible();
+  await page.getByLabel("任务评论").fill("Acceptance: every control is keyboard accessible.");
+  await page.getByRole("button",{name:"添加评论",exact:true}).click();
+  await page.getByRole("button",{name:"分配执行",exact:true}).click();
+  await expect(page.getByText("已检查登录流程并补充验证。")).toBeVisible();
+  await page.getByRole("link",{name:"返回任务",exact:true}).click();
+  await expect(page.getByText("Acceptance: every control is keyboard accessible.")).toBeVisible();
+  await page.getByLabel("任务状态",{exact:true}).click();
+  await page.getByRole("option",{name:"待验收",exact:true}).click();
+  await page.getByLabel("任务状态",{exact:true}).click();
+  await page.getByRole("option",{name:"已完成",exact:true}).click();
+  await page.reload();
+  await expect(page.getByRole("button",{name:"重新执行",exact:true})).toBeDisabled();
+  await navigate(page,"任务");
+  await page.getByLabel("搜索任务").fill("keyboard");
+  await expect(page.getByRole("region",{name:"已完成",exact:true})).toContainText("Verify login keyboard flow");
+  await page.screenshot({path:testInfo.outputPath("tasks-light.png")});
+  await page.getByRole("button",{name:"切换深色"}).click();
+  await page.screenshot({path:testInfo.outputPath("tasks-dark.png")});
+  await page.getByRole("button",{name:"列表视图",exact:true}).click();
+  await expect(page.getByRole("link",{name:/Verify login keyboard flow/})).toBeVisible();
+  await navigate(page,"定时任务");
+  await page.getByRole("button",{name:"新建计划",exact:true}).click();
+  await page.getByLabel("计划名称").fill("Daily accessibility review");
+  await page.getByLabel("任务模板").click();
+  await page.getByRole("option",{name:"Verify login keyboard flow",exact:true}).click();
+  await page.getByLabel("间隔（分钟）").fill("1440");
+  await page.getByRole("button",{name:"保存计划",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Daily accessibility review"})).toBeVisible();
+  await page.getByRole("button",{name:"暂停",exact:true}).click();
+  await navigate(page,"飞书");
+  await page.getByLabel("App ID",{exact:true}).fill("cli_0123456789abcdef");
+  await page.getByLabel("App Secret",{exact:true}).fill("fixture-secret");
+  await page.getByRole("button",{name:"添加群",exact:true}).click();
+  await page.getByLabel("群 ID 1",{exact:true}).fill("oc_fixture");
+  await page.getByLabel("群 Agent 1",{exact:true}).click();
+  await page.getByRole("option",{name:"审查助手",exact:true}).click();
+  await page.getByLabel("群运行时 1",{exact:true}).click();
+  await page.getByRole("option",{name:"开发沙箱",exact:true}).click();
+  await page.getByRole("checkbox",{name:/允许群成员切换 Agent/}).check();
+  await page.getByRole("button",{name:"保存飞书配置",exact:true}).click();
+  await page.reload();
+  await expect(page.getByLabel("App ID",{exact:true})).toHaveValue("cli_0123456789abcdef");
+  await expect(page.getByLabel("App Secret",{exact:true})).toHaveValue("");
+  await expect(page.getByLabel("群 ID 1",{exact:true})).toHaveValue("oc_fixture");
+  await expect(page.getByRole("checkbox",{name:/允许群成员切换 Agent/})).toBeChecked();
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:testInfo.outputPath("feishu-mobile.png")});
+  await expect(page.getByRole("button",{name:"保存飞书配置",exact:true})).toBeVisible();
 });

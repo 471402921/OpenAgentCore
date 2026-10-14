@@ -12,12 +12,14 @@ import { ErrorNotice } from "./components/shared";
 
 export function Composer({
   session,
+  taskBrief,
   turnId,
   connectionPending = false,
   attachment = "",
   onPendingChange,
 }: {
   session: AgentSession;
+  taskBrief?: string;
   turnId?: string;
   connectionPending?: boolean;
   attachment?: string;
@@ -114,6 +116,7 @@ export function Composer({
           已请求取消，等待执行结束。
         </p>
       )}
+      {taskBrief && <button className="mb-3 text-sm underline" onClick={() => { if (!text || confirm("用任务说明替换当前草稿？")) setText(taskBrief); }} disabled={!!pending || running || send.isPending}>填入任务说明，连接后发送</button>}
       <form
         className="rounded-2xl bg-surface-muted p-4 focus-within:ring-1 focus-within:ring-line-strong"
         onSubmit={(e) => {

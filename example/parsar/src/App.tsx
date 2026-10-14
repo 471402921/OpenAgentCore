@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
-import { Bot, Cpu, BookOpen, Plug, Server, Moon, Sun } from "lucide-react";
+import { Bot, Cpu, BookOpen, Plug, Server, Moon, Sun, Columns3, Folder, MessageSquare, Clock3 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
+import { Schedules } from "./Schedules";
+import { Feishu } from "./Feishu";
+import { Tasks } from "./Tasks";
+import { TaskDetail } from "./TaskDetail";
+import { Projects } from "./Projects";
 import { Models } from "./Models";
 import { Skills } from "./Skills";
 import { MCPs, Runtimes } from "./Resources";
@@ -10,7 +15,7 @@ import { AgentDetail } from "./AgentDetail";
 import { Button } from "./components/ui/button";
 
 export function App() {
-  const [route, setRoute] = useState(location.hash.slice(1) || "/agents");
+  const [route, setRoute] = useState(location.hash.slice(1) || "/tasks");
   const [dark, setDark] = useState(() => {
     try {
       return localStorage.getItem("oac-example-theme") === "dark";
@@ -20,7 +25,7 @@ export function App() {
   });
   const reduce = useReducedMotion();
   useEffect(() => {
-    const listener = () => setRoute(location.hash.slice(1) || "/agents");
+    const listener = () => setRoute(location.hash.slice(1) || "/tasks");
     window.addEventListener("hashchange", listener);
     return () => window.removeEventListener("hashchange", listener);
   }, []);
@@ -34,11 +39,17 @@ export function App() {
   }, [dark]);
   const agentId = route.match(/^\/agents\/([a-f0-9-]{36})$/)?.[1];
   const sessionId = route.match(/^\/sessions\/([a-f0-9-]{36})$/)?.[1];
+  const taskId = route.match(/^\/tasks\/([a-f0-9-]{36})$/)?.[1];
+  const projectId = new URLSearchParams(route.split("?")[1]).get("project") || "";
   const navigation = [
+    { href: "/tasks", label: "任务", icon: Columns3 },
+    { href: "/projects", label: "项目", icon: Folder },
     { href: "/agents", label: "Agents", icon: Bot },
     { href: "/models", label: "模型", icon: Cpu },
     { href: "/skills", label: "Skills", icon: BookOpen },
     { href: "/mcps", label: "MCP", icon: Plug },
+    { href: "/schedules", label: "定时任务", icon: Clock3 },
+    { href: "/feishu", label: "飞书", icon: MessageSquare },
     { href: "/runtimes", label: "运行时", icon: Server },
   ];
   return (
@@ -59,7 +70,8 @@ export function App() {
         >
           {navigation.map(({ href, label, icon: Icon }) => {
             const selected =
-              route === href ||
+              route.split("?")[0] === href ||
+              (href === "/tasks" && !!taskId) ||
               (href === "/agents" && (!!agentId || !!sessionId));
             return (
               <a
@@ -95,7 +107,13 @@ export function App() {
         </div>
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {sessionId ? (
+        {taskId ? (
+          <TaskDetail key={taskId} id={taskId} />
+        ) : route.split("?")[0] === "/tasks" ? (
+          <Tasks key={projectId} projectId={projectId} />
+        ) : route === "/projects" ? (
+          <Projects />
+        ) : sessionId ? (
           <SessionPage key={sessionId} id={sessionId} />
         ) : agentId ? (
           <AgentDetail key={agentId} id={agentId} />
@@ -105,6 +123,10 @@ export function App() {
           <Skills />
         ) : route === "/mcps" ? (
           <MCPs />
+        ) : route === "/schedules" ? (
+          <Schedules />
+        ) : route === "/feishu" ? (
+          <Feishu />
         ) : route === "/runtimes" ? (
           <Runtimes />
         ) : (

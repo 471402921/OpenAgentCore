@@ -8,11 +8,12 @@
     "build": "vite build",
     "start": "node server.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/server.test.mjs tests/product.test.mjs",
+    "test": "node --test tests/server.test.mjs tests/product.test.mjs tests/work.test.mjs",
     "test:e2e": "playwright test --config playwright.config.ts",
     "test:live": "node tests/live.mjs"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.75.0",
     "@oac/agents-client": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.18",
     "@radix-ui/react-select": "2.3.2",
@@ -31,17 +32,17 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^6.0.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.8.3",
     "vite": "^8.1.4",
-    "vitest": "^4.1.9",
-    "@types/node": "^26.1.0",
-    "@playwright/test": "^1.63.0"
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=22.13.0"
