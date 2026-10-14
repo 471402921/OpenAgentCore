@@ -44,8 +44,8 @@ const INSTALLATION_ID = "7f3c2a90-5b1e-4c2d-9e3f-0a1b2c3d4e5f";
 /** GET /core/v1/installation: the address, the startup settings Core loaded and what is bound to the address. */
 function installation() {
   const local = state.installation === "local";
-  const setting = (key, value, fallback, restarts, extra = {}) => ({ key, value, default: fallback, changeable: true, sensitive: false, restarts, ...extra });
-  const secret = (key, restarts) => ({ key, value: null, default: null, changeable: true, sensitive: true, restarts, configured: true });
+  const setting = (key, value, fallback, restarts) => ({ key, value, default: fallback, sensitive: false, restarts });
+  const secret = (key, restarts) => ({ key, value: null, default: null, sensitive: true, restarts, configured: true });
   const nodes = state.deployment?.provider && state.deployment.provider !== "e2b" ? state.nodes : [];
   return {
     // As Core: api_base_url is always public_url followed by /v1; local_only marks a loopback public_url.
@@ -53,13 +53,17 @@ function installation() {
     local_only: local, source_commit: release.source_commit,
     configuration: {
       settings: [
-        setting("public_url", publicUrl(), LOCAL_URL, ["core", "web"]),
-        setting("listen_address", "127.0.0.1:8091", "127.0.0.1:8091", ["core"]),
-        setting("web_listen_address", "127.0.0.1:4173", "127.0.0.1:4173", ["web"]),
-        setting("data_dir", "/var/lib/oac", "/var/lib/oac", [], { changeable: false }),
-        setting("log_level", "debug", "info", ["core", "web"]),
-        secret("core_key", ["core", "web"]),
-        secret("database_url", ["core"]),
+        // The settings Core reports (services/core/internal/processconfig), with the enabled harnesses of this fixture.
+        setting("OAC_PUBLIC_URL", publicUrl(), null, ["core", "web"]),
+        setting("OAC_LOG_LEVEL", "debug", "info", ["core", "web"]),
+        setting("OAC_LOG_FORMAT", "auto", "auto", ["core", "web"]),
+        setting("OAC_LOG_ADD_SOURCE", false, false, ["core", "web"]),
+        setting("OAC_EXECUTION_CONCURRENCY", 4, 4, ["core"]),
+        setting("OAC_HARNESSES", ["claude_sdk", "codex"], ["claude_sdk", "codex", "mcode"], ["core"]),
+        setting("OAC_DEFAULT_HARNESS", "codex", "codex", ["core"]),
+        setting("OAC_WRITE_AUDIT_RETENTION", "2160h", "2160h", ["core"]),
+        setting("OAC_OAUTH_TRUSTED_ORIGINS", [], [], ["core"]),
+        secret("OAC_HISTORY_SETTINGS_FILE", ["core"]),
       ],
     },
     // As Core counts them: the deployment's retained and pending hosted sandboxes, and the unrevoked executor credentials.

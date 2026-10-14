@@ -101,7 +101,7 @@ Runtime settings live in Core's database. Change them in Web; scripts use the sa
 | Default model per harness | **Settings** → **Models and credentials**: **Set** | `/core/v1/harnesses/{harness}/model-configuration` | See [Default models](#default-models) |
 | Executor credentials of a self-hosted Session | **Session log**, then the **Session** page: **Executor credentials** | `/core/v1/projects/{project_id}/environments/{environment_id}/executor-credentials` | See [self-hosted executors](./getting-started/self-hosted.md) |
 
-Which harnesses are enabled, and the default one, are process settings (`core.harnesses`, `core.default_harness`); **Settings → Models and credentials** shows them read-only. The [Core administration API](../contracts/agents-api/admin-api.md) lists every Core API route, and the [deployment contract](../contracts/agents-api/sandbox-deployment.md) defines the sandbox fields, limits and change rules.
+Which harnesses are enabled, and the default one, are process settings (`OAC_HARNESSES`, `OAC_DEFAULT_HARNESS`); **Settings → Service and deployment** lists them under **Startup settings**. **Settings → Models and credentials** marks each harness **Ready** once it is enabled and has a default model, and otherwise names the missing step: **Model provider not set** or **Disabled**. The [Core administration API](../contracts/agents-api/admin-api.md) lists every Core API route, and the [deployment contract](../contracts/agents-api/sandbox-deployment.md) defines the sandbox fields, limits and change rules.
 
 ### Independent workspace storage
 
@@ -198,7 +198,7 @@ The policy bounds what each tenant can commit, not the filesystem. Size the XFS 
 
 Core approves a node's capacity when you generate its Add node command: **Sandboxes at once** (`max_active`, default 2) and, for microsandbox only, **Retained sandboxes** (`max_retained`, default 8), with `max_retained >= max_active >= 1`. Docker never suspends sandboxes, so Web doesn't ask for it and Core keeps `max_retained` equal to `max_active`. Change them later in **Settings → Sandbox and scheduling → Sandbox nodes** with **Edit node**. Reservations and cleanup that is not confirmed count against capacity; lowering a limit stops no running sandbox. A node's own files can't change its capacity, size or Runtime.
 
-`core.execution_concurrency` is unrelated: it limits concurrent execution work in Core.
+`OAC_EXECUTION_CONCURRENCY` is unrelated: it limits concurrent execution work in Core.
 
 ### Default models
 
