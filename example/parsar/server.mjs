@@ -146,9 +146,12 @@ export function createHandler(
       ["/", "/index.html"].includes(path) &&
       req.headers["sec-fetch-mode"] === "navigate" &&
       req.headers["sec-fetch-dest"] === "document";
-    const hosts = [`127.0.0.1:${config.port}`, `localhost:${config.port}`];
+    const host = /^(?:127\.0\.0\.1|localhost)(?::([1-9]\d{0,4}))?$/.exec(
+      req.headers.host || "",
+    );
     if (
-      !hosts.includes(req.headers.host) ||
+      !host ||
+      (host[1] && Number(host[1]) > 65535) ||
       (req.headers.origin &&
         req.headers.origin !== `http://${req.headers.host}`) ||
       (req.headers["sec-fetch-site"] === "cross-site" &&

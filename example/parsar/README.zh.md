@@ -1,6 +1,6 @@
 ---
 source: example/parsar/README.md
-source_hash: 18b7819ef147444a525367a2bd29bcaf430474ce411b52c637fdd95b5160d08e
+source_hash: a8b72510f834c2f90f57088635a52592ba69b3bd1c45be3a0240b3a66093dd9a
 ---
 
 # Parsar 工作空间
@@ -20,7 +20,7 @@ pnpm --filter @oac/parsar-example... install --frozen-lockfile
 pnpm --filter @oac/parsar-example dev
 ```
 
-打开 http://127.0.0.1:18180。`OPENAI_BASE_URL` 以 `/v1` 结尾；远程地址必须使用 HTTPS，也可通过 SSH 隧道将远程 Core 映射至本机。`OAC_EXAMPLE_PORT` 调整端口。构建运行使用 `pnpm --filter @oac/parsar-example build`，再运行 `pnpm --filter @oac/parsar-example start`。服务只监听本机回环地址。允许从其他站点的链接顶层打开首页，API 请求仍检查同源；每个数据目录只运行一个服务进程。
+打开 http://127.0.0.1:18180。`OPENAI_BASE_URL` 以 `/v1` 结尾；远程地址必须使用 HTTPS，也可通过 SSH 隧道将远程 Core 映射至本机。`OAC_EXAMPLE_PORT` 调整端口。构建运行使用 `pnpm --filter @oac/parsar-example build`，再运行 `pnpm --filter @oac/parsar-example start`。服务只监听本机回环地址。允许从其他站点的链接顶层打开首页，API 请求仍检查同源。本地隧道可使用不同端口；浏览器 Host 必须为 `localhost` 或 `127.0.0.1`，写请求的 Origin 必须与该 Host 完全一致，包括端口；每个数据目录只运行一个服务进程。
 
 **设置**可修改工作空间名称和中英文界面。侧栏与 Agent 详情栏可调整宽度并记住选择，主题支持浅色、深色和跟随系统。**对话**、**运行记录**、**用量**、**审计日志**分别展示会话引用、公开 Turn、Token 用量和产品变更。日期筛选按浏览器本地日期计算；用量汇总覆盖所有匹配记录，而非仅当前页。缺失用量保持未知。模型可配置每百万输入/输出 Token 的美元价格，在会话创建时冻结；费用按该平价估算，不是服务商账单。
 

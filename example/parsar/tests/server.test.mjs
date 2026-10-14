@@ -331,3 +331,44 @@ test("external links may navigate to the homepage without permitting cross-site 
     );
   }
 });
+
+test("loopback port forwarding preserves exact-origin writes and rejects non-loopback Hosts", async (t) => {
+  let calls = 0;
+  const url = await serve(t, async () => {
+    calls++;
+    return Response.json({ id: "session" });
+  });
+  for (const [host, origin, status] of [
+    ["localhost:57357", "http://localhost:57357", 200],
+    ["127.0.0.1:57357", "http://127.0.0.1:57357", 200],
+    ["localhost", "http://localhost", 200],
+    ["localhost:57357", "http://localhost:18180", 403],
+    ["localhost:57357", "http://127.0.0.1:57357", 403],
+    ["localhost:57357", "https://evil.example", 403],
+    ["localhost:57357", undefined, 403],
+    [
+      "localhost.evil.example:57357",
+      "http://localhost.evil.example:57357",
+      403,
+    ],
+    ["evil.example:57357", "http://evil.example:57357", 403],
+    ["0.0.0.0:57357", "http://0.0.0.0:57357", 403],
+    ["localhost:65536", "http://localhost:65536", 403],
+    ["localhost:0", "http://localhost:0", 403],
+  ]) {
+    const actual = await new Promise((resolve, reject) => {
+      const req = request(
+        `${url}/v1/agents`,
+        { method: "POST", headers: { host, ...(origin ? { origin } : {}) } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        },
+      );
+      req.on("error", reject);
+      req.end("{}");
+    });
+    assert.equal(actual, status, `${host} / ${origin}`);
+  }
+  assert.equal(calls, 3);
+});
