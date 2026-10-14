@@ -140,13 +140,20 @@ export function createHandler(
   return async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
+    const path = req.url.split("?")[0];
+    const homeNavigation =
+      req.method === "GET" &&
+      ["/", "/index.html"].includes(path) &&
+      req.headers["sec-fetch-mode"] === "navigate" &&
+      req.headers["sec-fetch-dest"] === "document";
     const hosts = [`127.0.0.1:${config.port}`, `localhost:${config.port}`];
     if (
       !hosts.includes(req.headers.host) ||
       (req.headers.origin &&
         req.headers.origin !== `http://${req.headers.host}`) ||
       (req.headers["sec-fetch-site"] === "cross-site" &&
-        !(req.method === "GET" && req.url.split("?")[0] === "/oauth/callback"))
+        !homeNavigation &&
+        !(req.method === "GET" && path === "/oauth/callback"))
     ) {
       return fail(
         res,

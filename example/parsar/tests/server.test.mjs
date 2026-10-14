@@ -276,3 +276,58 @@ test("OAuth callback navigation serves only the local frontend while cross-site 
   });
   assert.equal(rebound, 403);
 });
+
+test("external links may navigate to the homepage without permitting cross-site API access", async (t) => {
+  const config = { port: 0, key: "secret", target: "https://core.example" };
+  const server = createServer(
+    createHandler(config, {
+      frontend: (_req, res) => res.end("Parsar shell"),
+      fetchImpl: () => {
+        throw new Error("must not reach Core");
+      },
+    }),
+  );
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  config.port = server.address().port;
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  const origin = `http://127.0.0.1:${config.port}`;
+  const navigation = {
+    "sec-fetch-site": "cross-site",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "document",
+  };
+  for (const [path, method, headers, status] of [
+    ["/", "GET", navigation, 200],
+    ["/?from=chat", "GET", navigation, 200],
+    ["/index.html", "GET", navigation, 200],
+    ["/app/agents", "GET", navigation, 403],
+    ["/v1/agents/sessions", "GET", navigation, 403],
+    ["/", "POST", navigation, 403],
+    [
+      "/",
+      "GET",
+      { ...navigation, "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" },
+      403,
+    ],
+    ["/", "GET", { ...navigation, "sec-fetch-dest": "iframe" }, 403],
+    ["/", "GET", { ...navigation, host: "evil.example" }, 403],
+    ["/", "GET", { ...navigation, origin: "https://evil.example" }, 403],
+  ]) {
+    const actual = await new Promise((resolve, reject) => {
+      const req = request(`${origin}${path}`, { method, headers }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(
+      actual,
+      status,
+      `${method} ${path} ${JSON.stringify(headers)}`,
+    );
+  }
+});
