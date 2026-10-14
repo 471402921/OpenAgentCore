@@ -12,7 +12,7 @@ export const common = {
   apiEmpty: {
     agents: "Applications create Agents through the Agents API.",
     sessions: "Applications start Sessions through the Agents API.",
-    "environment-templates": "Applications create Environment Templates through the Agents API.",
+    "environment-templates": "Applications create Environment templates through the Agents API.",
     skills: "Applications upload Skills through the Agents API.",
     "source-files": "Applications upload files through the Agents API.",
     vaults: "Applications create Vaults through the Agents API.",
@@ -71,6 +71,5 @@ export const common = {
     loadedMore: "{{n}} loaded · more available",
     noMatches: "No matches",
     deleteUncertain: "The deletion was not confirmed; Core may or may not have removed it. The view was re-read, so check it before trying again.",
-    noMatchesDescription: "Nothing matches the current search or filters.",
   },
 } as const;

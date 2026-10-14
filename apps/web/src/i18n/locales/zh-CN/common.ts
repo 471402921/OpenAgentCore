@@ -12,7 +12,7 @@ export const common = {
   apiEmpty: {
     agents: "应用通过 Agents API 创建 Agent。",
     sessions: "应用通过 Agents API 启动 Session。",
-    "environment-templates": "应用通过 Agents API 创建环境模板。",
+    "environment-templates": "应用通过 Agents API 创建 Environment 模板。",
     skills: "应用通过 Agents API 上传 Skill。",
     "source-files": "应用通过 Agents API 上传文件。",
     vaults: "应用通过 Agents API 创建 Vault。",
@@ -71,6 +71,5 @@ export const common = {
     loadedMore: "已加载 {{n}} 个，还有更多",
     noMatches: "没有匹配项",
     deleteUncertain: "未能确认删除结果，Core 可能已删除，也可能没有。页面已重新读取，请先确认再决定是否重试。",
-    noMatchesDescription: "没有符合当前搜索或筛选条件的结果。",
   },
 } as const;
