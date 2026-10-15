@@ -144,7 +144,7 @@ export function AgentDetail({ id }: { id: string }) {
               {query.data.ask_user ? tr("已启用") : tr("已停用")}
             </Property>
           </PropertyList>
-          <h2 className="mb-2 mt-6 text-sm font-medium">{tr("指令")}</h2>
+          <h2 className="mb-2 mt-6 text-sm font-medium">{tr("主指令")}</h2>
           <p className="whitespace-pre-wrap text-sm leading-relaxed">
             {query.data.instructions || tr("尚未设置指令")}
           </p>

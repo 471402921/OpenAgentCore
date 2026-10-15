@@ -70,15 +70,27 @@ async function agent(page: Page) {
   await navigate(page, "Agents");
   await page.getByRole("button", { name: "新建 Agent" }).click();
   await page.getByLabel("Agent 名称").fill("审查助手");
-  await page.getByLabel("模型", { exact: true }).click();
+  await page.getByRole("button", { name: "模型", exact: true }).click();
   await page
-    .getByRole("option", { name: "Moonshot / Kimi", exact: true })
+    .getByRole("radio", { name: "Moonshot / Kimi", exact: true })
     .click();
   await page
-    .getByLabel("指令", { exact: true })
+    .getByLabel("主指令", { exact: true })
     .fill("Read the code and report findings.");
-  await page.getByLabel("code-review", { exact: true }).check();
-  await page.getByLabel("文档服务", { exact: true }).check();
+  await page
+    .getByRole("region", { name: "Skills", exact: true })
+    .getByRole("button", { name: "Skills", exact: true })
+    .click();
+  await page
+    .getByRole("checkbox", { name: "code-review", exact: true })
+    .check();
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await page
+    .getByRole("region", { name: "MCP", exact: true })
+    .getByRole("button", { name: "MCP", exact: true })
+    .click();
+  await page.getByRole("checkbox", { name: "文档服务", exact: true }).check();
+  await page.getByRole("button", { name: "完成", exact: true }).click();
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -216,7 +228,7 @@ test("Agent to multiple independent Sessions, continuation and cancellation", as
   await page.screenshot({ path: testInfo.outputPath("session-dark.png") });
   await page.getByRole("link", { name: "返回 Agent", exact: true }).click();
   await page.getByRole("button", { name: "配置", exact: true }).click();
-  await page.getByLabel("指令", { exact: true }).fill("New instructions");
+  await page.getByLabel("主指令", { exact: true }).fill("New instructions");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await session(page, "另一段会话");
@@ -868,7 +880,7 @@ test("template editor preserves drafts through inline resource creation and relo
   await page.getByRole("button", { name: "新建 Agent", exact: true }).click();
   await page.getByLabel("Agent 名称", { exact: true }).fill("Draft agent");
   await page
-    .getByLabel("指令", { exact: true })
+    .getByLabel("主指令", { exact: true })
     .fill("Keep these instructions");
   await page.getByRole("button", { name: "添加环境模板", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("Inline environment");
@@ -878,10 +890,10 @@ test("template editor preserves drafts through inline resource creation and relo
     .getByRole("button", { name: "保存", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toHaveCount(1);
-  await expect(page.getByLabel("默认环境模板")).toContainText(
-    "Inline environment",
-  );
-  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+  await expect(
+    page.getByRole("region", { name: "默认环境模板", exact: true }),
+  ).toContainText("Inline environment");
+  await expect(page.getByLabel("主指令", { exact: true })).toHaveValue(
     "Keep these instructions",
   );
   expect(await (await request.get("/app/agents")).json()).toHaveLength(0);
@@ -889,9 +901,9 @@ test("template editor preserves drafts through inline resource creation and relo
   await expect(page.getByLabel("Agent 名称", { exact: true })).toHaveValue(
     "Draft agent",
   );
-  await expect(page.getByLabel("默认环境模板")).toContainText(
-    "Inline environment",
-  );
+  await expect(
+    page.getByRole("region", { name: "默认环境模板", exact: true }),
+  ).toContainText("Inline environment");
   await page.getByRole("button", { name: "添加MCP", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("Inline tool");
   await page.getByLabel("服务标识").fill("inline-tool");
@@ -901,10 +913,12 @@ test("template editor preserves drafts through inline resource creation and relo
     .last()
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await expect(page.getByLabel("Inline tool", { exact: true })).toBeChecked();
-  await page.getByLabel("模型", { exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "移除绑定 Inline tool", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "模型", exact: true }).click();
   await page
-    .getByRole("option", { name: "Moonshot / Kimi", exact: true })
+    .getByRole("radio", { name: "Moonshot / Kimi", exact: true })
     .click();
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -924,10 +938,12 @@ test("an existing Agent draft restores once in the detail rail", async ({
   await agent(page);
   await page.getByRole("link", { name: "打开", exact: true }).click();
   await page.getByRole("button", { name: "配置", exact: true }).click();
-  await page.getByLabel("指令", { exact: true }).fill("Restored detail draft");
+  await page
+    .getByLabel("主指令", { exact: true })
+    .fill("Restored detail draft");
   await page.reload();
   await expect(page.getByRole("dialog")).toHaveCount(1);
-  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("主指令", { exact: true })).toHaveValue(
     "Restored detail draft",
   );
   await page.getByRole("button", { name: "放弃草稿", exact: true }).click();
@@ -950,19 +966,19 @@ test("drafts for different Agents survive editing and copying other templates", 
   expect(created.ok()).toBeTruthy();
   await page.goto(`/#/agents/${first.id}?view=full`);
   await page.getByRole("button", { name: "配置", exact: true }).click();
-  await page.getByLabel("指令", { exact: true }).fill("First unsaved draft");
+  await page.getByLabel("主指令", { exact: true }).fill("First unsaved draft");
   await page.keyboard.press("Escape");
   await page.goto(`/#/agents/${secondId}?view=full`);
   await page.getByRole("button", { name: "配置", exact: true }).click();
-  await page.getByLabel("指令", { exact: true }).fill("Second unsaved draft");
+  await page.getByLabel("主指令", { exact: true }).fill("Second unsaved draft");
   await page.keyboard.press("Escape");
   await page.goto(`/#/agents/${first.id}?view=full`);
-  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("主指令", { exact: true })).toHaveValue(
     "First unsaved draft",
   );
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.goto(`/#/agents/${secondId}?view=full`);
-  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("主指令", { exact: true })).toHaveValue(
     "Second unsaved draft",
   );
   await page.keyboard.press("Escape");
@@ -978,7 +994,7 @@ test("drafts for different Agents survive editing and copying other templates", 
   await page
     .getByRole("button", { name: "恢复草稿: Second Agent", exact: true })
     .click();
-  await expect(page.getByLabel("指令", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("主指令", { exact: true })).toHaveValue(
     "Second unsaved draft",
   );
   await page.getByRole("button", { name: "放弃草稿", exact: true }).click();
@@ -1100,5 +1116,171 @@ test("environment connection mappings persist through the ordinary template edit
   );
   await expect(page.getByLabel("连接字段", { exact: true })).toContainText(
     "访问令牌",
+  );
+});
+
+test("Agent form unifies prompts and searches, edits and unbinds resources without losing the draft", async ({
+  page,
+  request,
+}) => {
+  await resources(page);
+  await agent(page);
+  await page.getByRole("link", { name: "打开", exact: true }).click();
+  await page.getByRole("button", { name: "配置", exact: true }).click();
+  const editor = page.getByRole("dialog").first();
+  await expect(
+    editor.getByRole("heading", { name: "系统提示词", exact: true }),
+  ).toHaveCount(1);
+  await page
+    .getByLabel("主指令", { exact: true })
+    .fill("Keep the main instructions.");
+  await page.getByRole("button", { name: "新建指令片段", exact: true }).click();
+  await page.getByLabel("名称", { exact: true }).fill("Report rules");
+  await page
+    .getByLabel("内容（修改后保存为新版本）")
+    .fill("Use a short checklist.");
+  await page
+    .getByRole("dialog")
+    .last()
+    .getByRole("button", { name: "保存能力", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  const [before] = await (await request.get("/app/agents")).json();
+  expect(before.instructions).toBe("Read the code and report findings.");
+  await expect(page.getByLabel("主指令", { exact: true })).toHaveValue(
+    "Keep the main instructions.",
+  );
+  await expect(
+    page.getByRole("region", { name: "指令片段", exact: true }),
+  ).toContainText("Report rules");
+  await page
+    .getByRole("button", { name: "查看或编辑 文档服务", exact: true })
+    .click();
+  await page.getByLabel("名称", { exact: true }).fill("Documentation MCP");
+  await page
+    .getByRole("dialog")
+    .last()
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(
+    page.getByRole("button", {
+      name: "移除绑定 Documentation MCP",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "移除绑定 Documentation MCP", exact: true })
+    .click();
+  await page.getByRole("button", { name: "MCP", exact: true }).click();
+  await page.getByLabel("搜索MCP", { exact: true }).fill("nonexistent");
+  await expect(page.getByText("没有匹配的资源", { exact: true })).toBeVisible();
+  await page.getByLabel("搜索MCP", { exact: true }).fill("Documentation");
+  await page
+    .getByRole("checkbox", { name: "Documentation MCP", exact: true })
+    .check();
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await page.getByLabel("Report rules 版本", { exact: true }).click();
+  await page.getByRole("option", { name: "v1", exact: true }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const [saved] = await (await request.get("/app/agents")).json();
+  expect(saved.instructions).toBe("Keep the main instructions.");
+  expect(saved.capability_ids).toHaveLength(1);
+  expect(saved.capability_versions[saved.capability_ids[0]]).toBe("1");
+  expect(saved.mcp_ids).toHaveLength(1);
+  await page.getByRole("button", { name: "配置", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByRole("dialog").getByRole("button", { name: "保存", exact: true }),
+  ).toBeInViewport();
+  const bounds = await page.getByRole("dialog").boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await expect(page.getByLabel("主指令", { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: process.env.HOME + "/.oac/tasks/parsar-agent-form/mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(
+    page.getByRole("heading", { name: "模型与环境", exact: true }),
+  ).toBeInViewport();
+  await expect(
+    page.getByRole("button", { name: "保存", exact: true }),
+  ).toBeInViewport();
+  await page.screenshot({
+    path: process.env.HOME + "/.oac/tasks/parsar-agent-form/desktop.png",
+  });
+  await page
+    .getByLabel("主指令", { exact: true })
+    .fill("Preserve the draft during account management");
+  await page.getByRole("link", { name: "管理连接", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "我的连接", exact: true }),
+  ).toBeVisible();
+  await page.goto(`/#/agents/${saved.id}?view=full`);
+  await expect(page.getByLabel("主指令", { exact: true })).toHaveValue(
+    "Preserve the draft during account management",
+  );
+});
+
+test("Agent resource selectors enforce the shared capability budget before saving", async ({
+  page,
+  request,
+}) => {
+  await resources(page);
+  await agent(page);
+  const [a] = await (await request.get("/app/agents")).json();
+  const ids: string[] = [];
+  for (let i = 0; i < 9; i++) {
+    const id = crypto.randomUUID();
+    const response = await request.put(`/app/capabilities/${id}`, {
+      headers: { origin: "http://127.0.0.1:18180" },
+      data: {
+        name: `Shared ${i}`,
+        kind: i < 4 ? "prompt" : "knowledge",
+        content: `Content ${i}`,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+    ids.push(id);
+  }
+  expect(
+    (
+      await request.put(`/app/agents/${a.id}`, {
+        headers: { origin: "http://127.0.0.1:18180" },
+        data: { ...a, capability_ids: ids.slice(0, 8) },
+      })
+    ).ok(),
+  ).toBeTruthy();
+  await page.goto(`/#/agents/${a.id}?view=full`);
+  await page.getByRole("button", { name: "配置", exact: true }).click();
+  for (const name of ["指令片段", "Plugins", "知识"])
+    await expect(
+      page.getByRole("button", { name: `新建${name}`, exact: true }),
+    ).toBeDisabled();
+  await page.getByRole("button", { name: "知识", exact: true }).click();
+  await expect(
+    page.getByRole("checkbox", { name: "Shared 8", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await page
+    .getByRole("button", { name: "移除绑定 Shared 0", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "新建Plugins", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "知识", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Shared 8", exact: true }).check();
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "新建Plugins", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const saved = await (await request.get(`/app/agents/${a.id}`)).json();
+  expect(saved.capability_ids).toEqual(ids.slice(1));
+  expect((await (await request.get("/app/capabilities")).json()).length).toBe(
+    9,
   );
 });

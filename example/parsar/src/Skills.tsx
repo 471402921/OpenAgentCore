@@ -219,7 +219,13 @@ export function SkillCreate({
     </Dialog>
   );
 }
-function SkillDetail({ skill, close }: { skill: Skill; close: () => void }) {
+export function SkillDetail({
+  skill,
+  close,
+}: {
+  skill: Skill;
+  close: () => void;
+}) {
   const cache = useQueryClient();
   const [preview, setPreview] = useState<string>("");
   const versions = useQuery({

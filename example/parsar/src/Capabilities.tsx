@@ -62,7 +62,7 @@ export function Capabilities({
           ["skills", "Skills"],
           ["mcps", "MCP"],
           ["plugin", "Plugins"],
-          ["prompt", tr("系统提示词")],
+          ["prompt", tr("指令片段")],
           ["knowledge", tr("知识")],
           ["credentials", tr("凭据")],
         ].map(([key, label]) => (
@@ -93,7 +93,7 @@ export function Capabilities({
   );
 }
 const labels = {
-  prompt: tr("系统提示词"),
+  prompt: tr("指令片段"),
   knowledge: tr("知识"),
   plugin: "Plugins",
 };
@@ -155,12 +155,14 @@ function CapabilityList({ kind }: { kind: Capability["kind"] }) {
     </>
   );
 }
-function CapabilityEditor({
+export function CapabilityEditor({
   value,
   close,
+  onSaved,
 }: {
   value: Capability;
   close: () => void;
+  onSaved?: (id: string) => void;
 }) {
   const cache = useQueryClient(),
     [form, setForm] = useState(value),
@@ -189,7 +191,10 @@ function CapabilityEditor({
           ? { client_bundle: clientBundle, default_version: "" }
           : {}),
       }),
-    onSuccess: finish,
+    onSuccess: () => {
+      onSaved?.(form.id);
+      finish();
+    },
   });
   const remove = useMutation({
     mutationFn: () =>
@@ -217,6 +222,7 @@ function CapabilityEditor({
           className="space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
+            event.stopPropagation();
             save.mutate();
           }}
         >

@@ -275,16 +275,16 @@ export function AgentEditor({
     >
       <DialogContent
         aria-describedby={undefined}
-        className="max-h-[90dvh] overflow-y-auto sm:max-w-xl"
+        className="flex max-h-[90dvh] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden sm:max-w-2xl lg:max-w-5xl"
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0">
           <DialogTitle>
             {value.revision ? tr("编辑 Agent") : tr("新建 Agent")}
           </DialogTitle>
         </DialogHeader>
         <form
           id="agent-form"
-          className="space-y-5"
+          className="-mx-4 min-h-0 space-y-5 overflow-y-auto px-4"
           onSubmit={(e) => {
             e.preventDefault();
             save.mutate();
@@ -343,7 +343,7 @@ export function AgentEditor({
           <ErrorNotice error={save.error} />
           <ListSlot slotId="agent.settings.section" context={{ agent: form }} />
         </form>
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button
             type="button"
             variant="ghost"
