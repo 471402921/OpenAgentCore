@@ -66,7 +66,7 @@ async function resources(page: Page) {
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 }
-async function agent(page: Page) {
+async function agent(page: Page, withEnvironment = false) {
   await navigate(page, "Agents");
   await page.getByRole("button", { name: "新建 Agent" }).click();
   await page.getByLabel("Agent 名称").fill("审查助手");
@@ -91,6 +91,12 @@ async function agent(page: Page) {
     .click();
   await page.getByRole("checkbox", { name: "文档服务", exact: true }).check();
   await page.getByRole("button", { name: "完成", exact: true }).click();
+  if (withEnvironment) {
+    await page
+      .getByRole("button", { name: "默认环境模板", exact: true })
+      .click();
+    await page.getByRole("radio", { name: "开发沙箱", exact: true }).check();
+  }
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 }
@@ -647,7 +653,7 @@ test("project task dispatch, discussion, review, schedules and Feishu configurat
   page,
 }, testInfo) => {
   await resources(page);
-  await agent(page);
+  await agent(page, true);
   await navigate(page, "项目");
   await page.getByRole("button", { name: "新建项目", exact: true }).click();
   await page.getByLabel("项目名称").fill("Website launch");
@@ -732,6 +738,12 @@ test("project task dispatch, discussion, review, schedules and Feishu configurat
   await page.getByRole("button", { name: "保存飞书配置", exact: true }).click();
   await page.reload();
   await page.getByRole("button", { name: "配置机器人", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "高级设置：群聊、应用凭证与更多选项",
+      exact: true,
+    })
+    .click();
   await expect(page.getByLabel("App ID", { exact: true })).toHaveValue(
     "cli_0123456789abcdef",
   );
@@ -742,8 +754,52 @@ test("project task dispatch, discussion, review, schedules and Feishu configurat
   await expect(
     page.getByRole("checkbox", { name: /允许群成员切换 Agent/ }),
   ).toBeChecked();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: testInfo.outputPath("feishu-mobile.png") });
+  await page.getByRole("button", { name: "收起高级设置", exact: true }).click();
+  await expect(page.getByLabel("App ID", { exact: true })).not.toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "启用机器人（私聊和已有群聊）",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "回复私聊的 Agent", exact: true })
+    .click();
+  await page.getByRole("radio", { name: "审查助手", exact: true }).check();
+  await expect(
+    page.getByText(
+      "此机器人还有 1 个群聊接入。启用后，私聊和这些群聊会一起恢复。",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "启用机器人（私聊和已有群聊）", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "保存私聊设置", exact: true }),
+  ).toBeVisible();
+  const bots = await (await page.request.get("/app/feishu/bots")).json();
+  const bot = bots.find((row: { name: string }) => row.name === "Team bot");
+  expect(bot.routes).toHaveLength(2);
+  expect(
+    bot.routes.find((row: { chat_id: string }) => row.chat_id === "oc_fixture")
+      .allow_agent_selection,
+  ).toBe(true);
+  expect(
+    bot.routes.find((row: { chat_id: string }) => row.chat_id === "p2p")
+      .runtime_id,
+  ).toBe("");
+  await expect(
+    page.getByText("已连接，可以去飞书聊天了", { exact: true }),
+  ).not.toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: testInfo.outputPath("feishu-desktop.png") });
+  await page
+    .getByRole("button", {
+      name: "高级设置：群聊、应用凭证与更多选项",
+      exact: true,
+    })
+    .click();
   await expect(
     page.getByRole("button", { name: "保存飞书配置", exact: true }),
   ).toBeVisible();

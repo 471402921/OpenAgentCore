@@ -16,6 +16,7 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Select, SelectOption } from "./components/ui/select";
 import { EmptyState } from "./components/ui/empty-state";
+import { ResourceField } from "./components/ResourceField";
 import { dateTime } from "./lib/api";
 interface FeishuConfig {
   brand?: "feishu" | "lark";
@@ -80,11 +81,17 @@ export function Feishu() {
     queryFn: () => product<Delivery[]>("feishu/deliveries"),
     refetchInterval: 5000,
   });
+  const selected = editing
+    ? config.data?.find((bot) => bot.id === editing.id) || editing
+    : config.data?.length === 1
+      ? config.data[0]
+      : null;
   return (
     <>
       <PageHeader title={tr("飞书接入")}>
         <FeishuRegistration complete={setEditing} />
         <Button
+          variant="outline"
           onClick={() =>
             setEditing({
               id: crypto.randomUUID(),
@@ -129,24 +136,29 @@ export function Feishu() {
             <EmptyState
               title={tr("连接飞书机器人")}
               description={tr(
-                "每个 Agent 可绑定独立机器人，也可使用共享机器人。支持群聊与私聊。",
+                "扫码连接机器人，选择一个 Agent，就可以在飞书私聊中交代任务。",
               )}
             />
           )}
-          {editing && (
+          {selected && (
             <section className="max-w-3xl border-b border-line pb-6">
-              <FeishuEditor key={editing.id} value={editing} />
-              <Button
-                className="mt-3"
-                variant="ghost"
-                onClick={() => setEditing(null)}
-              >
-                {tr("关闭配置")}
-              </Button>
+              <FeishuSetup key={selected.id} value={selected} />
+              {(config.data?.length || 0) !== 1 && (
+                <Button
+                  className="mt-3"
+                  variant="ghost"
+                  onClick={() => setEditing(null)}
+                >
+                  {tr("关闭配置")}
+                </Button>
+              )}
             </section>
           )}
-          <section>
-            <h2 className="mb-4 text-lg font-medium">{tr("最近投递")}</h2>
+          <details>
+            <summary className="cursor-pointer text-sm text-fg-muted">
+              {tr("消息记录与排查")}
+            </summary>
+            <h2 className="my-4 text-lg font-medium">{tr("最近投递")}</h2>
             <p className="mb-4 text-sm text-fg-muted">
               {tr(
                 "连接中断会按相同请求标识重试。超过重试上限或飞书去重窗口的记录会保留为「需要处理」，避免重复发送。",
@@ -157,7 +169,7 @@ export function Feishu() {
                 size="compact"
                 title={tr("尚无消息")}
                 description={tr(
-                  "启用后，在允许的飞书群中 @机器人 发送第一项任务。",
+                  "启用后，私聊机器人发送第一项任务；已接入的群中可以 @机器人。",
                 )}
               />
             ) : (
@@ -202,13 +214,188 @@ export function Feishu() {
                 ))}
               </div>
             )}
-          </section>
+          </details>
         </div>
       </div>
     </>
   );
 }
-function FeishuEditor({ value }: { value: FeishuConfig }) {
+function FeishuSetup({ value }: { value: FeishuConfig }) {
+  const cache = useQueryClient();
+  const agents = useAgents(),
+    runtimes = useRuntimes();
+  const existing = value.routes.find((route) => route.chat_id === "p2p");
+  const [agentId, setAgentId] = useState(existing?.agent_id || "");
+  const [advanced, setAdvanced] = useState(!value.has_app_secret);
+  const agent = agents.data?.find((row) => row.id === agentId);
+  const runtime = runtimes.data?.find(
+    (row) => row.id === (existing?.runtime_id || agent?.runtime_id),
+  );
+  const issue =
+    !existing && value.routes.length >= 20
+      ? tr("接入数量已满，请先在高级设置中移除一项。")
+      : !value.has_app_secret || !value.app_id
+        ? tr("请先在高级设置中填写应用凭证。")
+        : !agent
+          ? tr("选择一个 Agent 来回复私聊消息。")
+          : agent.enabled === false
+            ? tr("请先启用这个 Agent。")
+            : !runtime
+              ? tr("Agent 未配置有效的默认环境模板。")
+              : sessionRestriction(agent, runtime);
+  const save = useMutation({
+    mutationFn: () =>
+      product<FeishuConfig>(`feishu/bots/${value.id}`, "PUT", {
+        ...value,
+        enabled: true,
+        routes: existing
+          ? value.routes.map((route) =>
+              route.chat_id === "p2p" ? { ...route, agent_id: agentId } : route,
+            )
+          : [
+              ...value.routes,
+              {
+                chat_id: "p2p",
+                agent_id: agentId,
+                project_id: "",
+                runtime_id: "",
+              },
+            ],
+      }),
+    onSuccess: () => {
+      void cache.invalidateQueries({ queryKey: ["feishu"] });
+      void cache.invalidateQueries({ queryKey: ["feishu-status"] });
+    },
+  });
+  const groupCount = value.routes.filter(
+    (route) => route.chat_id !== "p2p",
+  ).length;
+  const resumesGroups = !value.enabled && groupCount > 0;
+  const connected =
+    value.enabled && !!existing && value.health?.state === "connected";
+  return (
+    <div className="space-y-6">
+      {!advanced && (
+        <div className="rounded-xl border border-line bg-bg p-6 space-y-5">
+          <div>
+            <p className="text-xs text-fg-muted">
+              {tr("1 连接机器人 → 2 选择 Agent → 3 开始聊天")}
+            </p>
+            <h2 className="mt-3 text-xl font-semibold">
+              {existing && value.enabled
+                ? tr("私聊助手")
+                : value.has_app_secret
+                  ? tr("机器人已添加，接下来选择 Agent")
+                  : tr("连接你的机器人")}
+            </h2>
+            <p className="mt-2 text-sm text-fg-muted">
+              {existing?.allow_agent_selection
+                ? tr(
+                    "用户可以在飞书切换 Agent；这里设置默认 Agent，已有个人选择会保留。",
+                  )
+                : tr("私聊收到的消息会交给这个 Agent，环境跟随 Agent 模板。")}
+            </p>
+          </div>
+          <ResourceField
+            label={
+              existing?.allow_agent_selection
+                ? tr("私聊默认 Agent")
+                : tr("回复私聊的 Agent")
+            }
+            options={(agents.data || []).map((row) => ({
+              id: row.id,
+              name: row.name,
+              disabled: row.enabled === false,
+            }))}
+            loading={agents.isPending}
+            manage={{ href: "#/agents", label: tr("管理 Agent") }}
+            selected={agentId ? [agentId] : []}
+            change={(ids) => setAgentId(ids[0] || "")}
+          />
+          {runtime && (
+            <p className="text-sm text-fg-muted">
+              {tr("工作环境")}: {runtime.name}
+              {existing?.runtime_id ? ` · ${tr("已在高级设置中指定")}` : ""}
+            </p>
+          )}
+          {issue && <p className="text-sm text-fg-muted">{issue}</p>}
+          {resumesGroups && (
+            <p className="text-sm text-fg-muted">
+              {tr(
+                "此机器人还有 {{count}} 个群聊接入。启用后，私聊和这些群聊会一起恢复。",
+                { count: groupCount },
+              )}
+            </p>
+          )}
+          <ErrorNotice error={save.error || agents.error || runtimes.error} />
+          <Button
+            disabled={
+              !!issue ||
+              save.isPending ||
+              (!existing && value.routes.length >= 20)
+            }
+            onClick={() => save.mutate()}
+          >
+            {save.isPending
+              ? tr("保存中…")
+              : value.enabled && existing
+                ? tr("保存私聊设置")
+                : resumesGroups
+                  ? tr("启用机器人（私聊和已有群聊）")
+                  : tr("启用私聊")}
+          </Button>
+          {value.enabled && existing && (
+            <div
+              role="status"
+              className="rounded-lg border border-line p-4 text-sm space-y-2"
+            >
+              <p className="font-medium">
+                {connected
+                  ? tr("已连接，可以去飞书聊天了")
+                  : states[value.health?.state || "connecting"] || tr("连接中")}
+              </p>
+              {connected && (
+                <>
+                  <p>
+                    {tr("在飞书搜索机器人名称，打开私聊，发送你的第一项任务。")}
+                  </p>
+                  <p className="text-fg-muted">
+                    {tr(
+                      "例如：介绍一下你能帮我做什么。需要使用你的账号时，机器人会引导你授权。",
+                    )}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <Button variant="ghost" onClick={() => setAdvanced(!advanced)}>
+        {advanced
+          ? tr("收起高级设置")
+          : tr("高级设置：群聊、应用凭证与更多选项")}
+      </Button>
+      {advanced && (
+        <FeishuEditor
+          value={value}
+          onSaved={(bot) => {
+            setAgentId(
+              bot.routes.find((route) => route.chat_id === "p2p")?.agent_id ||
+                "",
+            );
+          }}
+        />
+      )}
+    </div>
+  );
+}
+function FeishuEditor({
+  value,
+  onSaved,
+}: {
+  value: FeishuConfig;
+  onSaved: (bot: FeishuConfig) => void;
+}) {
   const cache = useQueryClient(),
     agents = useAgents(),
     runtimes = useRuntimes(),
@@ -221,6 +408,7 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
     onSuccess: (config) => {
       setForm({ ...config, app_secret: "" });
       setSaved(true);
+      onSaved(config);
       void cache.invalidateQueries({ queryKey: ["feishu"] });
       void cache.invalidateQueries({ queryKey: ["feishu-status"] });
     },
@@ -310,13 +498,25 @@ function FeishuEditor({ value }: { value: FeishuConfig }) {
           className="space-y-4 rounded-lg border border-line p-4"
         >
           <div className="flex gap-3">
-            <Input
-              aria-label={tr("群 ID {{value0}}", { value0: index + 1 })}
-              required
-              placeholder={tr("oc_\u2026，或 p2p 接收私聊")}
-              value={route.chat_id}
-              onChange={(e) => updateRoute(index, "chat_id", e.target.value)}
-            />
+            <Select
+              aria-label={tr("接入类型 {{value0}}", { value0: index + 1 })}
+              value={route.chat_id === "p2p" ? "private" : "group"}
+              onValueChange={(type) =>
+                updateRoute(index, "chat_id", type === "private" ? "p2p" : "")
+              }
+            >
+              <SelectOption value="group">{tr("群聊")}</SelectOption>
+              <SelectOption value="private">{tr("私聊")}</SelectOption>
+            </Select>
+            {route.chat_id !== "p2p" && (
+              <Input
+                aria-label={tr("群 ID {{value0}}", { value0: index + 1 })}
+                required
+                placeholder="oc_…"
+                value={route.chat_id}
+                onChange={(e) => updateRoute(index, "chat_id", e.target.value)}
+              />
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -496,7 +696,12 @@ function FeishuRegistration({
   });
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
+      <Button
+        onClick={() => {
+          setOpen(true);
+          if (!id && !begin.isPending) begin.mutate();
+        }}
+      >
         {tr("扫码创建机器人")}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -506,7 +711,7 @@ function FeishuRegistration({
           </DialogHeader>
           <p className="text-sm text-fg-muted">
             {tr(
-              "使用飞书扫码并确认创建应用。应用密钥仅保存在服务器；完成后配置分配规则并启用机器人。",
+              "使用飞书扫码并确认创建应用。应用密钥仅保存在服务器；完成后选择 Agent，即可启用私聊。",
             )}
           </p>
           <ErrorNotice error={begin.error || state.error || finish.error} />
@@ -535,7 +740,7 @@ function FeishuRegistration({
             </div>
           ) : state.data?.status === "success" ? (
             <Button disabled={finish.isPending} onClick={() => finish.mutate()}>
-              {tr("配置机器人")}
+              {tr("选择 Agent，继续设置")}
             </Button>
           ) : (
             <>
