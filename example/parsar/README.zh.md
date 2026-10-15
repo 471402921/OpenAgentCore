@@ -1,6 +1,6 @@
 ---
 source: example/parsar/README.md
-source_hash: 28d90f0972fd730d1fe9d6b3e18d70f3aabec71403446be8fc6f8c9fc67c5b4c
+source_hash: 1b1891891c937c8a9e2f2da7d93903e8eae8a688f3defa8c1ebc122bdbef29f7
 ---
 
 # Parsar 工作空间
@@ -72,17 +72,31 @@ Agent 详情默认打开**配置**。编辑器按职责、模型与执行、分�
 
 计划可向已启用飞书机器人的允许群投递。后台发送初始卡片并建立持久化话题，后续结果与回复继续同一会话；机器人或路由变更导致的投递错误会显示在历史中，不会悄悄转发到其他目标。
 
-## 个人连接
+## 个人连接 {#personal-connections}
 
-**我的连接**管理本地操作者的外部账号连接，首个支持的服务是飞书。**Agent 模板**中的**所需用户连接**声明已配置的飞书应用和**授权范围**。环境模板只负责准备 lark-cli，不得包含覆盖个人连接的认证变量。应用需先在飞书开通相应用户权限及刷新用户令牌权限，才能完成授权。
+**我的连接**管理本地操作人的外部账号，目前支持飞书。OAuth 适配器负责授权、身份核验、续期、撤销和连接字段；通用任务生命周期不认识 CLI 名称、安装命令或厂商环境变量。**Agent 模板**的**所需用户连接**声明应用和**授权范围**。环境模板负责软件安装、固定配置和**连接变量映射**（`connection_env`）：每个变量绑定 `access_token`、`client_id` 或 `region`，不能与固定环境变量重名，也不能绑定刷新令牌或应用密钥。需要连接的 Agent 必须选用配置了映射的环境，带映射的环境也必须搭配账号连接。映射随任务冻结，变量名展示在**本次运行**；个人凭据不保存在任何模板中。飞书应用必须先开通相应用户权限及刷新令牌权限。
 
-新任务冻结 Agent 和环境配置；缺少授权时，在创建 Core Session 之前等待。网页显示原始授权链接、二维码和验证码；飞书回复链接和验证码。服务端持久化轮询官方设备授权流程，核实返回的用户身份，随后自动继续原任务，无需再次提问。拒绝或过期的授权会保留在界面，需要点击**重新连接**，或在飞书发送 `/connect`；**取消任务**或 `/cancel` 可以取消等待中的任务。轮询和创建重试支持进程重启，并沿用原执行的幂等标识。刷新令牌和应用密钥仅保存在受限的产品存储中，不发送到 Core、浏览器或模型。
+新任务会冻结 Agent 和环境配置；缺少授权时在创建 Core Session 之前等待。网页展示原始授权链接、二维码和验证码，飞书消息提供链接及验证码。服务端持久化轮询官方 OAuth 设备授权流程，核验账号后自动继续原任务。拒绝或过期需要点击**重新连接**（飞书中使用 `/connect`）；**取消任务**或 `/cancel` 取消等待中的工作。轮询和创建重试支持进程重启，并保留原执行幂等键。刷新令牌和应用密钥只保存在受限产品存储，不发送给 Core、浏览器或模型。
 
-本地网页操作者是一个单一身份，不是产品账号系统，也不按浏览器区分账号。飞书任务绑定发起者在该应用下的 open ID，授权必须返回同一身份。只有应用和用户均一致时才复用已经核实的连接；群内其他成员不能继续使用发起者个人连接的任务。Agent MCP 客户端不能调用需要个人连接的 Agent。定时任务使用本地操作者的连接；缺少授权时保留任务等待，不会在未授权状态下执行。
+本地网页操作人是单一身份，不是产品账号或浏览器独立账号。飞书任务绑定发起人的应用内 open ID，授权结果必须是同一人。同一账号与应用的新授权请求会保留已有权限，避免在不同 Agent 之间切换时反复覆盖授权；需要缩小权限时先断开连接。已核验连接仅按同一应用和账号复用；群内其他成员不能继续使用发起人的个人连接。Agent MCP 客户端不能启动需要个人连接的 Agent。定时任务使用本地操作人的连接，缺少授权时保留任务等待。
 
-每个新 Session 通过公开 Environment `env` 协议和官方 CLI 的仅令牌模式接收短期用户访问令牌。新执行开始前，服务端按需续期。**本次运行**显示本次凭据的有效期；公开 API 无法替换已有 Environment 中的凭据，因此过期后的追问需要开启新会话。长时间运行的 Turn 也可能遇到令牌过期，此时应报告问题。**断开连接**立即阻止产品继续使用该授权执行，并向飞书请求撤销；撤销结果未确认时保留并重试，不显示为已完成。断开不会删除对话历史或产物。
+每个新 Session 通过公开 Environment 的 `env` 合同接收短期访问令牌，服务端在必要时先续期。**本次运行**显示凭据快照有效期；公开 API 无法替换已有 Environment 的凭据，因此过期后必须新开会话，长时间运行的 Turn 也可能遇到过期。**断开连接**立即阻止产品继续使用该授权执行，并请求服务端撤销；未确认的撤销持久化重试，不宣称已完成。历史和产物仍保留。
 
-飞书适配器遵循[官方 CLI v1.0.98 设备授权流程](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/device_flow.go)、[令牌续期](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/uat_client.go)和[撤销](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/revoke.go)。连接生命周期由产品负责，不新增 Core 协议或特权接口。
+飞书适配器遵循[官方 CLI v1.0.98 设备授权流程](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/device_flow.go)、[续期](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/uat_client.go)和[撤销](https://github.com/larksuite/cli/blob/v1.0.98/internal/auth/revoke.go)。这些生命周期属于产品，不增加 Core 协议或特权端点。
+
+## 飞书工作环境案例 {#feishu-workspace-case}
+
+Parsar 是 OpenAgentCore 的应用示例；[飞书工作环境](examples/feishu/)是用普通 Parsar 模板组合的案例。[environment.json](examples/feishu/environment.json)声明软件包、CLI 固定身份配置、文件及连接映射，[setup.sh](examples/feishu/setup.sh)安装并校验官方 CLI 二进制，[agent.json](examples/feishu/agent.json)定义 Codex 的工作方式。案例不增加服务端路由、执行器或 Core 功能。
+
+通过现有资源页面配置模型、导入官方 `lark-shared` 和业务 Skill，并配置飞书应用。把对应 ID 填入下列命令；`--app` 是 Parsar 中机器人配置的 ID，不是外部 App ID。脚本使用与网页相同的 `/app/runtimes` 和 `/app/agents` 操作创建环境与 Agent，并打印 Agent 链接：
+
+```bash
+node example/parsar/examples/feishu/configure.mjs --url http://localhost:3001 --model MODEL_ID --app BOT_CONFIGURATION_ID --skills SHARED_SKILL_ID,DOMAIN_SKILL_ID
+```
+
+默认权限用于只读身份试用；用 `--scopes` 指定 Agent 需要的业务权限。在**Agent 模板**中开启对话，按提示通过**我的连接**授权。第一条消息可以要求执行 `lark-cli api GET /open-apis/authen/v1/user_info --as user --json`。官方 CLI 的外部令牌模式禁用 `auth` 管理命令，因此案例使用只读身份 API。其他工具可以通过自己的变量映射使用同一连接生命周期。
+
+运行节点需要预先能够解析并访问服务端点。模板以托管环境用户执行，无法修复节点 DNS、修改 root 所有的 hosts 文件或覆盖网络策略。目前 mx 试用已经验证个人授权、自动启动任务和新 Session 复用，但 CLI 业务调用仍被安装环境的飞书内部网关 DNS／网络配置阻塞；不能据此宣称该环境上的业务闭环已经通过。
 
 ## 飞书 {#feishu}
 

@@ -630,5 +630,20 @@
   "取消任务": "Cancel task",
   "用户连接": "User connection",
   "本次会话凭据有效期至": "Session credentials expire at",
-  "查看授权": "View authorization"
+  "查看授权": "View authorization",
+  "连接账号": "Connect account",
+  "账号连接": "Account connection",
+  "等待连接账号": "Waiting for account connection",
+  "账号已连接": "Account connected",
+  "需要重新连接账号": "Reconnect account",
+  "打开链接或扫码，确认账号和权限。授权完成后任务会自动继续，无需重新发送。": "Open the link or scan the QR code to confirm your account and permissions. The task resumes automatically after authorization.",
+  "已停止使用此连接，正在向服务提供方撤销授权。": "This connection is no longer used. Provider revocation is pending.",
+  "连接变量映射": "Connection variable mappings",
+  "添加连接变量": "Add connection variable",
+  "连接变量名称": "Connection variable name",
+  "连接字段": "Connection field",
+  "访问令牌": "Access token",
+  "应用 ID": "Application ID",
+  "区域": "Region",
+  "Agent 选择账号连接；环境模板决定工具通过哪些变量读取连接。令牌在启动前注入，不保存在模板中。": "The Agent selects the account connection; the environment template maps its fields to tool variables. Tokens are injected before startup and never stored in templates."
 }

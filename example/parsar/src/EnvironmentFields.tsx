@@ -1,3 +1,5 @@
+import { connectionFields } from "../shared/connection-bindings.mjs";
+import { Select, SelectOption } from "./components/ui/select";
 import { useState } from "react";
 import { tr } from "./lib/i18n";
 import type { RuntimeProfile } from "./lib/product";
@@ -160,6 +162,93 @@ export function EnvironmentFields({
           </div>
         ))}
       </section>
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">{tr("连接变量映射")}</h3>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              let name = "ACCOUNT_TOKEN";
+              while (
+                name in (value.connection_env || {}) ||
+                name in (value.env || {})
+              )
+                name += "_";
+              onChange({
+                ...value,
+                connection_env: {
+                  ...value.connection_env,
+                  [name]: "access_token",
+                },
+              });
+            }}
+          >
+            {tr("添加连接变量")}
+          </Button>
+        </div>
+        <p className="text-xs text-fg-muted">
+          {tr(
+            "Agent 选择账号连接；环境模板决定工具通过哪些变量读取连接。令牌在启动前注入，不保存在模板中。",
+          )}
+        </p>
+        {Object.entries(value.connection_env || {}).map(
+          ([name, source], index, rows) => (
+            <div key={index} className="flex gap-2">
+              <Input
+                aria-label={tr("连接变量名称")}
+                value={name}
+                onChange={(event) => {
+                  if (
+                    event.target.value !== name &&
+                    event.target.value in (value.connection_env || {})
+                  ) {
+                    event.target.setCustomValidity(tr("变量名称不能重复"));
+                    return;
+                  }
+                  event.target.setCustomValidity("");
+                  const updated = [...rows];
+                  updated[index] = [event.target.value, source];
+                  onChange({
+                    ...value,
+                    connection_env: Object.fromEntries(updated),
+                  });
+                }}
+              />
+              <Select
+                aria-label={tr("连接字段")}
+                value={source}
+                onValueChange={(field) =>
+                  onChange({
+                    ...value,
+                    connection_env: { ...value.connection_env, [name]: field },
+                  })
+                }
+              >
+                {Object.entries(connectionFields).map(([field, label]) => (
+                  <SelectOption key={field} value={field}>
+                    {tr(label)}
+                  </SelectOption>
+                ))}
+              </Select>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() =>
+                  onChange({
+                    ...value,
+                    connection_env: Object.fromEntries(
+                      rows.filter((_, i) => i !== index),
+                    ),
+                  })
+                }
+              >
+                {tr("移除")}
+              </Button>
+            </div>
+          ),
+        )}
+      </section>
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">{tr("初始文件")}</h3>
@@ -236,6 +325,7 @@ export function environmentSummary(value: RuntimeProfile) {
       value.setup_script ? tr("初始化脚本") : "",
       Object.keys(value.env || {}).length ? tr("环境变量") : "",
       value.files?.length ? tr("初始文件") : "",
+      Object.keys(value.connection_env || {}).length ? tr("连接变量映射") : "",
     ]
       .filter(Boolean)
       .join(" · ") || tr("空白工作环境")

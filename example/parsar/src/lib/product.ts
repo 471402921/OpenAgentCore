@@ -27,12 +27,13 @@ export interface RuntimeProfile extends NamedResource {
   description?: string;
   packages?: { npm?: string[]; python?: string[] };
   setup_script?: string;
+  connection_env?: Record<string, string>;
   env?: Record<string, string | null>;
   files?: { path: string; content: string }[];
 }
 export interface AgentProfile extends NamedResource {
   connection_requirement?: {
-    service: "feishu";
+    service: string;
     bot_id: string;
     app_id?: string;
     scopes: string;

@@ -1,4 +1,5 @@
-import { userConnections, connectionRequirement } from "./connections.mjs";
+import { userConnections } from "./connections.mjs";
+import { feishuConnection } from "./feishu-connection.mjs";
 import { agentMCPTokenAPI } from "./agent-mcp.mjs";
 import { mcpOAuthAPI } from "./mcp-oauth.mjs";
 import { previewRegistrySkill } from "./skills-directory.mjs";
@@ -50,7 +51,10 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
       store.remove(kind, row.id);
     }
   }
-  const connections = userConnections(store, fetchImpl);
+  const connections = userConnections(
+    store,
+    feishuConnection(store, fetchImpl),
+  );
   const sessions = sessionAPI(store, core, connections);
   const publicRow = (kind, row) => {
     if (kind === "providers") return publicProvider(row);
@@ -372,8 +376,7 @@ export function productAPI(store, core, fetchImpl = fetch, origin) {
       value.instructions = text(body.instructions, "指令", 100000);
       value.enabled = body.enabled !== false;
       value.ask_user = body.ask_user === true;
-      value.connection_requirement = connectionRequirement(
-        store,
+      value.connection_requirement = connections.requirement(
         body.connection_requirement,
       );
       if (value.ask_user && body.harness === "mcode")

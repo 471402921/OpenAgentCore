@@ -1056,10 +1056,49 @@ test("personal connections show an authorization link and QR, and waiting tasks 
   await page.goto(`/#/sessions/${runId}`);
   await page.getByRole("button", { name: "重新连接", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "等待连接飞书账号", exact: true }),
+    page.getByRole("heading", { name: "等待连接账号", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "取消任务", exact: true }).click();
   await expect(page.getByText("此会话已删除", { exact: true })).toBeVisible();
   expect(retries).toBe(1);
   expect(cancelled).toBe(true);
+});
+
+test("environment connection mappings persist through the ordinary template editor", async ({
+  page,
+  request,
+}) => {
+  const id = crypto.randomUUID();
+  const created = await request.put(`/app/runtimes/${id}`, {
+    headers: { Origin: "http://127.0.0.1:18180" },
+    data: { name: "Mapped environment" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const runtime = await created.json();
+  await page.goto("/#/runtimes");
+  await page
+    .getByRole("button", { name: "编辑 Mapped environment", exact: true })
+    .click();
+  await page.getByRole("button", { name: "添加连接变量", exact: true }).click();
+  await page
+    .getByLabel("连接变量名称", { exact: true })
+    .fill("CUSTOM_ACCOUNT_TOKEN");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await (await request.get(`/app/runtimes/${runtime.id}`)).json())
+          .connection_env,
+    )
+    .toEqual({ CUSTOM_ACCOUNT_TOKEN: "access_token" });
+  await page.reload();
+  await page
+    .getByRole("button", { name: "编辑 Mapped environment", exact: true })
+    .click();
+  await expect(page.getByLabel("连接变量名称", { exact: true })).toHaveValue(
+    "CUSTOM_ACCOUNT_TOKEN",
+  );
+  await expect(page.getByLabel("连接字段", { exact: true })).toContainText(
+    "访问令牌",
+  );
 });

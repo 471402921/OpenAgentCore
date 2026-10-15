@@ -1,3 +1,4 @@
+import { feishuConnection } from "../server/feishu-connection.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -89,6 +90,11 @@ function fixture(t) {
   const row = (owner = { kind: "local" }) => ({
     id: randomUUID(),
     connection_requirement: requirement,
+    connection_env: {
+      LARKSUITE_CLI_USER_ACCESS_TOKEN: "access_token",
+      LARKSUITE_CLI_APP_ID: "client_id",
+      LARKSUITE_CLI_BRAND: "region",
+    },
     connection_owner: owner,
     request: {
       environment: { type: "openai_hosted", env: { HELLO: "world" } },
@@ -111,7 +117,7 @@ function fixture(t) {
 
 test("connection device flow survives restart, verifies identity, resumes and reuses without exposing secrets", async (t) => {
   const f = fixture(t);
-  let c = userConnections(f.store, f.fetch);
+  let c = userConnections(f.store, feishuConnection(f.store, f.fetch));
   const waiting = await c.prepare(f.row());
   assert.equal(waiting.connection_wait.status, "pending");
   assert.equal(
@@ -132,7 +138,7 @@ test("connection device flow survives restart, verifies identity, resumes and re
     ...exchanged,
     pending_tokens: { ...exchanged.pending_tokens, expires_at: originalExpiry },
   });
-  c = userConnections(f.store, f.fetch);
+  c = userConnections(f.store, feishuConnection(f.store, f.fetch));
   f.failInfo(false);
   f.ready();
   await c.tick();
@@ -163,7 +169,7 @@ test("connection device flow survives restart, verifies identity, resumes and re
 
 test("Feishu sender must match OAuth subject and cannot borrow a different local user's grant", async (t) => {
   const f = fixture(t);
-  const c = userConnections(f.store, f.fetch);
+  const c = userConnections(f.store, feishuConnection(f.store, f.fetch));
   f.approve();
   const owner = { kind: "feishu", app_id: f.bot.app_id, subject_id: "ou_bob" };
   const waiting = await c.prepare(f.row(owner));
@@ -196,7 +202,7 @@ test("Feishu sender must match OAuth subject and cannot borrow a different local
 
 test("refresh is serialized, invalid grants reconnect, and old Sessions never silently replace credentials", async (t) => {
   const f = fixture(t);
-  const c = userConnections(f.store, f.fetch);
+  const c = userConnections(f.store, feishuConnection(f.store, f.fetch));
   f.approve();
   const waiting = await c.prepare(f.row());
   f.ready();
@@ -243,7 +249,7 @@ test("refresh is serialized, invalid grants reconnect, and old Sessions never si
 
 test("disconnect cancels pending consent and prevents reuse, while denied/expired consent does not loop", async (t) => {
   const f = fixture(t);
-  const c = userConnections(f.store, f.fetch);
+  const c = userConnections(f.store, feishuConnection(f.store, f.fetch));
   const waiting = await c.prepare(f.row());
   f.store.put("sessions", waiting);
   await c.api("DELETE", `/app/connections/feishu/${f.bot.id}`, {});
@@ -284,7 +290,10 @@ test("product waits before Core creation and resumes original request exactly on
     model: "m",
     provider_id: provider.id,
   });
-  const env = await put("runtimes", { name: "env" });
+  const env = await put("runtimes", {
+    name: "env",
+    connection_env: { LARKSUITE_CLI_USER_ACCESS_TOKEN: "access_token" },
+  });
   const agent = await put("agents", {
     name: "agent",
     model_id: model.id,
@@ -316,7 +325,7 @@ test("product waits before Core creation and resumes original request exactly on
 
 test("disconnect revokes a connected grant and blocks snapshots", async (t) => {
   const f = fixture(t);
-  const c = userConnections(f.store, f.fetch);
+  const c = userConnections(f.store, feishuConnection(f.store, f.fetch));
   f.approve();
   const waiting = await c.prepare(f.row());
   f.ready();
@@ -332,7 +341,7 @@ test("disconnect revokes a connected grant and blocks snapshots", async (t) => {
 
 test("reconnect cannot restore a task cancelled while device authorization is in flight", async (t) => {
   const f = fixture(t);
-  const c = userConnections(f.store, f.fetch);
+  const c = userConnections(f.store, feishuConnection(f.store, f.fetch));
   const waiting = await c.prepare(f.row());
   f.store.put("sessions", waiting);
   let release, started;
@@ -369,4 +378,159 @@ test("reconnect cannot restore a task cancelled while device authorization is in
   assert.ok(f.store.get("sessions", waiting.id).deleted_at);
   assert.equal(f.store.get("sessions", waiting.id).connection_wait, undefined);
   assert.equal(calls, 0);
+});
+
+test("environment mappings freeze with waiting work and never bind refresh tokens or app secrets", async (t) => {
+  const { runtimeProfile } = await import("../server/runtime-profile.mjs");
+  const f = fixture(t);
+  for (const connection_env of [
+    { TOKEN: "refresh_token" },
+    { TOKEN: "client_secret" },
+    { PATH: "access_token" },
+    { OAC_KEY: "access_token" },
+    { TOKEN: "__proto__" },
+  ])
+    assert.throws(() => runtimeProfile({ connection_env }), /连接变量/);
+  assert.throws(
+    () =>
+      runtimeProfile({
+        env: { TOKEN: "fixed" },
+        connection_env: { TOKEN: "access_token" },
+      }),
+    /连接变量/,
+  );
+  const profile = runtimeProfile({
+    env: { TOOL_IDENTITY: "user" },
+    connection_env: {
+      TOOL_TOKEN: "access_token",
+      TOOL_APPLICATION: "client_id",
+    },
+  });
+  const c = userConnections(f.store, feishuConnection(f.store, f.fetch));
+  const waiting = await c.prepare({
+    ...f.row(),
+    connection_env: profile.connection_env,
+    request: { environment: { env: profile.env } },
+  });
+  // Editing the template cannot change a previously frozen Session binding.
+  f.store.put("runtimes", {
+    id: randomUUID(),
+    ...profile,
+    connection_env: { OTHER_TOKEN: "access_token" },
+  });
+  f.approve();
+  f.ready();
+  await c.tick();
+  const prepared = await c.prepare(waiting);
+  assert.deepEqual(prepared.request.environment.env, {
+    TOOL_IDENTITY: "user",
+    TOOL_TOKEN: "private-access",
+    TOOL_APPLICATION: "cli_test",
+  });
+  assert.doesNotMatch(
+    JSON.stringify(prepared.request),
+    /private-refresh|app-secret|LARKSUITE/,
+  );
+});
+
+test("generic task connection lifecycle accepts an adapter without Feishu or CLI semantics", async (t) => {
+  const f = fixture(t);
+  const requirement = {
+    service: "fixture",
+    app_id: "application",
+    bot_id: randomUUID(),
+    scopes: "read",
+  };
+  const adapter = {
+    service: "fixture",
+    label: "Account",
+    defaultScopes: "read",
+    requirement: (value) => value,
+    owner: () => ({ kind: "local" }),
+    expectedSubject: () => undefined,
+    applications: () => [requirement],
+    authorize: async () => ({
+      device_code: "device",
+      verification_url: "https://account.example/consent",
+      expires_in: 240,
+    }),
+    exchange: async () => ({
+      access_token: "fixture-token",
+      refresh_token: "private-refresh",
+      expires_in: 3600,
+      scope: "read",
+    }),
+    identity: async () => ({ subject_id: "account", name: "Example" }),
+    refresh: async () => {
+      throw new Error("unexpected refresh");
+    },
+    revoke: async () => {},
+    values: (_, connection) => ({
+      access_token: connection.access_token,
+      client_id: "application",
+      region: "example",
+    }),
+  };
+  const c = userConnections(f.store, adapter);
+  const waiting = await c.prepare({
+    id: randomUUID(),
+    connection_requirement: requirement,
+    connection_owner: { kind: "local" },
+    connection_env: { EXAMPLE_API_TOKEN: "access_token" },
+    request: { environment: { env: {} } },
+  });
+  assert.equal(waiting.connection_wait.status, "pending");
+  f.ready();
+  await c.tick();
+  const ready = await c.prepare(waiting);
+  assert.deepEqual(ready.request.environment.env, {
+    EXAMPLE_API_TOKEN: "fixture-token",
+  });
+  assert.equal(ready.configuration.connection.service, "fixture");
+});
+
+test("the Feishu case is ordinary template data with no personal credentials", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { runtimeProfile } = await import("../server/runtime-profile.mjs");
+  const directory = new URL("../examples/feishu/", import.meta.url);
+  const environment = JSON.parse(
+    await readFile(new URL("environment.json", directory), "utf8"),
+  );
+  environment.setup_script = await readFile(
+    new URL("setup.sh", directory),
+    "utf8",
+  );
+  const profile = runtimeProfile(environment);
+  assert.equal(
+    profile.connection_env.LARKSUITE_CLI_USER_ACCESS_TOKEN,
+    "access_token",
+  );
+  assert.equal(profile.env.LARKSUITE_CLI_STRICT_MODE, "user");
+  assert.equal(profile.env.LARKSUITE_CLI_USER_ACCESS_TOKEN, undefined);
+  assert.match(profile.setup_script, /checksum/i);
+  assert.doesNotMatch(
+    profile.setup_script,
+    /10\.1\.171\.214|\/etc\/hosts|USER_ACCESS_TOKEN/,
+  );
+});
+
+test("another Agent's consent retains the same account's existing grant scopes", async (t) => {
+  const f = fixture(t);
+  const c = userConnections(f.store, feishuConnection(f.store, f.fetch));
+  f.approve();
+  await c.prepare(f.row());
+  f.ready();
+  await c.tick();
+  let requested;
+  const adapter = feishuConnection(f.store, async (url, options) => {
+    if (url.endsWith("/device_authorization"))
+      requested = new URLSearchParams(options.body).get("scope");
+    return f.fetch(url, options);
+  });
+  await userConnections(f.store, adapter).begin(
+    { ...f.requirement, scopes: "docs:document:readonly" },
+    { kind: "local" },
+  );
+  assert.match(requested, /calendar:calendar:readonly/);
+  assert.match(requested, /docs:document:readonly/);
 });

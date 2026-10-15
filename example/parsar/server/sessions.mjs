@@ -1,9 +1,8 @@
-import { connectionOwner } from "./connections.mjs";
 import { runtimeEnvironment } from "./runtime-profile.mjs";
 import { sessionRestriction } from "../shared/session-profile.mjs";
 import { AppError, text, uuid } from "./store.mjs";
 
-export function prepareSession(store, id, body) {
+export function prepareSession(store, id, body, owner = { kind: "local" }) {
   const agent = store.get("agents", body.agent_id);
   const runtime = store.get("runtimes", body.runtime_id);
   if (!agent || !runtime)
@@ -17,17 +16,18 @@ export function prepareSession(store, id, body) {
   if (new Set(mcps.map((mcp) => mcp.label)).size !== mcps.length)
     throw new AppError(400, "绑定的 MCP 服务标识不能重复。");
   if (
-    agent.connection_requirement &&
-    Object.keys(runtime.env || {}).some((name) =>
-      /^LARKSUITE_CLI_(APP_ID|APP_SECRET|USER_ACCESS_TOKEN|TENANT_ACCESS_TOKEN|BRAND|DEFAULT_AS|STRICT_MODE|AUTH_PROXY|PROXY_KEY)$/.test(
-        name,
-      ),
-    )
+    Object.keys(runtime.connection_env || {}).length &&
+    !agent.connection_requirement
   )
     throw new AppError(
       400,
-      "个人连接的认证配置由 Parsar 管理，请从环境模板移除飞书认证变量。",
+      "环境模板需要账号连接，请在 Agent 模板中选择所需用户连接。",
     );
+  if (
+    agent.connection_requirement &&
+    !Object.keys(runtime.connection_env || {}).length
+  )
+    throw new AppError(400, "请在环境模板中配置连接变量映射。");
   const environment = runtimeEnvironment(runtime);
   const restriction = sessionRestriction(agent, runtime);
   if (restriction) throw new AppError(400, restriction);
@@ -183,7 +183,10 @@ export function prepareSession(store, id, body) {
       environment_name: runtime.name,
       packages: runtime.packages || { npm: [], python: [] },
       setup_configured: Boolean(runtime.setup_script),
-      env_names: Object.keys(runtime.env || {}),
+      env_names: [
+        ...Object.keys(runtime.env || {}),
+        ...Object.keys(runtime.connection_env || {}),
+      ],
       file_paths: (runtime.files || []).map((file) => file.path),
       skills: agent.skill_ids.map((id) => ({
         id,
@@ -196,10 +199,9 @@ export function prepareSession(store, id, body) {
         version: row.version,
       })),
     },
+    connection_env: runtime.connection_env || {},
     connection_requirement: agent.connection_requirement,
-    connection_owner: agent.connection_requirement
-      ? connectionOwner(store, id)
-      : undefined,
+    connection_owner: agent.connection_requirement ? owner : undefined,
     created_at: Math.floor(Date.now() / 1000),
     request: {
       agent: {
@@ -256,7 +258,7 @@ export function sessionAPI(store, core, connections) {
     if (row?.deleted_at) throw new AppError(410, "会话已取消。");
     if (row?.core_session_id) return row;
     if (!row) {
-      row = prepareSession(store, id, body);
+      row = prepareSession(store, id, body, connections?.owner(id));
       store.put("sessions", row);
     }
     try {

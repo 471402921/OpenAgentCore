@@ -15,7 +15,9 @@ export interface ConnectionLogin {
   error?: string;
 }
 export interface ConnectionEntry {
-  service: "feishu";
+  service: string;
+  label?: string;
+  default_scopes?: string;
   bot_id: string;
   app_id: string;
   name: string;
@@ -51,17 +53,17 @@ export function LoginCard({
       <h2 className="font-medium">
         {tr(
           active
-            ? "等待连接飞书账号"
+            ? "等待连接账号"
             : login.status === "connected"
-              ? "飞书账号已连接"
-              : "需要重新连接飞书",
+              ? "账号已连接"
+              : "需要重新连接账号",
         )}
       </h2>
       {active && login.verification_url ? (
         <>
           <p className="text-sm text-fg-muted">
             {tr(
-              "打开链接或扫码，在飞书确认账号和权限。授权完成后任务会自动继续，无需重新发送。",
+              "打开链接或扫码，确认账号和权限。授权完成后任务会自动继续，无需重新发送。",
             )}
           </p>
           <a
@@ -103,11 +105,13 @@ export function LoginCard({
 function ConnectionItem({ entry }: { entry: ConnectionEntry }) {
   const cache = useQueryClient();
   const [scopes, setScopes] = useState(
-    entry.required_scopes || "contact:user.base:readonly",
+    entry.required_scopes || entry.default_scopes || "",
   );
   const action = useMutation({
     mutationFn: (method: string) =>
-      product(`connections/feishu/${entry.bot_id}`, method, { scopes }),
+      product(`connections/${entry.service}/${entry.bot_id}`, method, {
+        scopes,
+      }),
     onSuccess: () => cache.invalidateQueries({ queryKey: ["connections"] }),
   });
   const connected = entry.connection?.status === "connected";
@@ -115,7 +119,7 @@ function ConnectionItem({ entry }: { entry: ConnectionEntry }) {
     <section className="max-w-2xl space-y-4 rounded-lg border border-line p-5">
       <div>
         <h2 className="font-medium">
-          {tr("飞书账号")} · {entry.name}
+          {tr(entry.label || "账号连接")} · {entry.name}
         </h2>
         <p className="mt-1 text-xs text-fg-muted">{entry.app_id}</p>
       </div>
@@ -132,7 +136,7 @@ function ConnectionItem({ entry }: { entry: ConnectionEntry }) {
       )}
       {entry.connection?.revocation_pending && (
         <p role="status" className="text-sm">
-          {tr("已停止使用此连接，正在向飞书撤销授权。")}
+          {tr("已停止使用此连接，正在向服务提供方撤销授权。")}
         </p>
       )}
       <Field label={tr("授权范围")} id={`scopes-${entry.bot_id}`}>
@@ -153,7 +157,7 @@ function ConnectionItem({ entry }: { entry: ConnectionEntry }) {
           disabled={action.isPending}
           onClick={() => action.mutate("POST")}
         >
-          {tr(connected ? "更新授权" : "连接飞书")}
+          {tr(connected ? "更新授权" : "连接账号")}
         </Button>
         {connected && (
           <Button

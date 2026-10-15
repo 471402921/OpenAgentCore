@@ -73,25 +73,27 @@ export function ConfigurationFields({
         <Select
           id="agent-connection"
           value={value.connection_requirement?.bot_id || ""}
-          onValueChange={(bot_id) =>
+          onValueChange={(bot_id) => {
+            const entry = connections.data?.find((e) => e.bot_id === bot_id);
             change({
               ...value,
               connection_requirement: bot_id
                 ? {
-                    service: "feishu",
+                    service: entry!.service,
                     bot_id,
                     scopes:
                       value.connection_requirement?.scopes ||
-                      "contact:user.base:readonly",
+                      entry!.default_scopes ||
+                      "",
                   }
                 : undefined,
-            })
-          }
+            });
+          }}
         >
           <SelectOption value="">{tr("不需要个人连接")}</SelectOption>
           {connections.data?.map((entry) => (
             <SelectOption key={entry.bot_id} value={entry.bot_id}>
-              {tr("飞书账号")} · {entry.name}
+              {tr(entry.label || "账号连接")} · {entry.name}
             </SelectOption>
           ))}
         </Select>

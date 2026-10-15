@@ -1,3 +1,7 @@
+import {
+  connectionFields,
+  environmentVariableName,
+} from "../shared/connection-bindings.mjs";
 import { posix } from "node:path";
 import { AppError, text } from "./store.mjs";
 
@@ -38,11 +42,7 @@ export function runtimeProfile(body, previous) {
   )
     throw new AppError(400, "环境变量格式无效。");
   for (const [name, value] of Object.entries(input)) {
-    if (
-      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ||
-      /^(OAC_|CODEX_)/.test(name) ||
-      ["PATH", "OPENAI_API_KEY"].includes(name)
-    )
+    if (!environmentVariableName(name))
       throw new AppError(400, "环境变量名称无效或被运行环境保留。");
     const selected = value === null ? previous?.env?.[name] : value;
     if (
@@ -52,6 +52,26 @@ export function runtimeProfile(body, previous) {
     )
       throw new AppError(400, "请填写新环境变量的值；已有变量留空可保留。");
     env[name] = selected;
+  }
+  const connection_env = body.connection_env ?? {};
+  if (
+    !connection_env ||
+    typeof connection_env !== "object" ||
+    Array.isArray(connection_env) ||
+    Object.keys(connection_env).length > 20
+  )
+    throw new AppError(400, "连接变量映射格式无效。");
+  for (const [name, source] of Object.entries(connection_env)) {
+    if (
+      !environmentVariableName(name) ||
+      Object.hasOwn(env, name) ||
+      typeof source !== "string" ||
+      !Object.hasOwn(connectionFields, source)
+    )
+      throw new AppError(
+        400,
+        "连接变量名称必须有效、不能与固定变量重复，且只能选择公开的连接字段。",
+      );
   }
   const files = body.files ?? [];
   if (!Array.isArray(files) || files.length > 20)
@@ -78,6 +98,7 @@ export function runtimeProfile(body, previous) {
     packages,
     setup_script: text(body.setup_script || "", "初始化脚本", 100000),
     env,
+    connection_env,
     files: normalized,
   };
 }

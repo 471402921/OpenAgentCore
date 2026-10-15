@@ -3,7 +3,7 @@ import { AppError, text, uuid } from "./store.mjs";
 
 const key = (...parts) =>
   createHash("sha256").update(parts.join("\n")).digest("hex");
-const scopesOf = (value) =>
+export const connectionScopes = (value) =>
   [
     ...new Set(
       text(value || "", "授权范围", 3000)
@@ -11,34 +11,6 @@ const scopesOf = (value) =>
         .filter(Boolean),
     ),
   ].sort();
-export function connectionRequirement(store, value) {
-  if (!value) return undefined;
-  const bot = store.get("feishu_bots", value.bot_id);
-  const scopes = scopesOf(value.scopes);
-  if (
-    value.service !== "feishu" ||
-    !bot?.app_id ||
-    !bot.app_secret ||
-    !scopes.length ||
-    scopes.length > 50 ||
-    scopes.some((s) => !/^[a-zA-Z0-9_:.-]+$/.test(s))
-  )
-    throw new AppError(400, "请选择已配置的飞书应用和有效的授权范围。");
-  return {
-    service: "feishu",
-    bot_id: bot.id,
-    app_id: bot.app_id,
-    scopes: scopes.join(" "),
-  };
-}
-export function connectionOwner(store, sessionId) {
-  const thread = store
-    .list("feishu_threads")
-    .find((t) => t.session_id === sessionId);
-  return thread
-    ? { kind: "feishu", app_id: thread.app_id, subject_id: thread.sender_id }
-    : { kind: "local" };
-}
 const ownerKey = (owner) =>
   owner.kind === "local" ? "local" : key(owner.app_id, owner.subject_id);
 const safeLogin = (row) =>
@@ -53,7 +25,6 @@ const safeLogin = (row) =>
 const safeConnection = (row) =>
   row && {
     id: row.id,
-    service: "feishu",
     app_id: row.app_id,
     subject_id: row.subject_id,
     name: row.name,
@@ -63,9 +34,9 @@ const safeConnection = (row) =>
     expires_at: row.expires_at,
   };
 
-// OAuth device authorization follows the pinned official CLI's RFC 8628 flow.
-// App secrets and refresh tokens stay in the product store, never in a Session.
-export function userConnections(store, fetchImpl = fetch) {
+// Durable OAuth device-grant lifecycle. Provider wire behavior is supplied by the adapter.
+// Templates own all runtime bindings; the lifecycle never selects tools or CLI variables.
+export function userConnections(store, adapter) {
   const locks = new Map();
   const locked = (id, fn) => {
     if (!locks.has(id))
@@ -77,50 +48,6 @@ export function userConnections(store, fetchImpl = fetch) {
       );
     return locks.get(id);
   };
-  const app = (requirement) => {
-    const bot = store.get("feishu_bots", requirement.bot_id);
-    if (!bot?.app_secret || bot.app_id !== requirement.app_id)
-      throw new AppError(409, "飞书应用配置已改变，请重新选择连接应用。");
-    return bot;
-  };
-  const request = async (url, options) => {
-    let response, value;
-    try {
-      response = await fetchImpl(url, {
-        ...options,
-        redirect: "error",
-        signal: AbortSignal.timeout(15000),
-      });
-      const raw = await response.text();
-      if (raw.length > 65536) throw new Error();
-      value = raw ? JSON.parse(raw) : {};
-    } catch {
-      throw new AppError(502, "无法连接飞书授权服务，请稍后重试。");
-    }
-    if (!response.ok && !value.error)
-      throw new AppError(502, "飞书授权服务暂不可用。");
-    return value;
-  };
-  const accounts = (bot) =>
-    `https://accounts.${bot.brand === "lark" ? "larksuite.com" : "feishu.cn"}`;
-  const post = (bot, path, fields, basic = false) =>
-    request(accounts(bot) + path, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        ...(basic
-          ? {
-              Authorization: `Basic ${Buffer.from(`${bot.app_id}:${bot.app_secret}`).toString("base64")}`,
-            }
-          : {}),
-      },
-      body: new URLSearchParams(fields),
-    });
-  const tokenFields = (bot, fields) => ({
-    client_id: bot.app_id,
-    client_secret: bot.app_secret,
-    ...fields,
-  });
   const tokenData = (value, old = {}) => {
     if (
       typeof value.access_token !== "string" ||
@@ -128,7 +55,7 @@ export function userConnections(store, fetchImpl = fetch) {
       (value.token_type && value.token_type.toLowerCase() !== "bearer") ||
       !(Number(value.expires_in) > 0)
     )
-      throw new AppError(502, "飞书未返回受支持的用户授权，请重新连接。");
+      throw new AppError(502, "授权服务未返回受支持的用户授权，请重新连接。");
     return {
       access_token: value.access_token,
       refresh_token: value.refresh_token || old.refresh_token,
@@ -140,14 +67,9 @@ export function userConnections(store, fetchImpl = fetch) {
     };
   };
   const selected = (requirement, owner) => {
-    if (owner.kind === "feishu") {
-      if (owner.app_id !== requirement.app_id)
-        throw new AppError(400, "飞书入口与 Agent 的连接应用必须一致。");
-      return store.get(
-        "user_connections",
-        key(requirement.app_id, owner.subject_id),
-      );
-    }
+    const subject = adapter.expectedSubject(requirement, owner);
+    if (subject)
+      return store.get("user_connections", key(requirement.app_id, subject));
     const binding = store.get(
       "connection_bindings",
       key("local", requirement.app_id),
@@ -155,8 +77,10 @@ export function userConnections(store, fetchImpl = fetch) {
     return binding && store.get("user_connections", binding.connection_id);
   };
   const hasScopes = (row, requirement) =>
-    scopesOf(requirement.scopes).every((s) => scopesOf(row.scopes).includes(s));
-  const refresh = (row, bot) =>
+    connectionScopes(requirement.scopes).every((s) =>
+      connectionScopes(row.scopes).includes(s),
+    );
+  const refresh = (row) =>
     locked(`refresh:${row.id}`, async () => {
       row = store.get("user_connections", row.id);
       if (row.status !== "connected" || row.expires_at > Date.now() + 120000)
@@ -172,23 +96,14 @@ export function userConnections(store, fetchImpl = fetch) {
           refresh_token: undefined,
         };
       } else {
-        const value = await request(accounts(bot) + "/oauth/v3/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            tokenFields(bot, {
-              grant_type: "refresh_token",
-              refresh_token: row.refresh_token,
-            }),
-          ),
-        });
+        const value = await adapter.refresh(row);
         if (value.error) {
           if (
             !["invalid_grant", "invalid_token", "access_denied"].includes(
               value.error,
             )
           )
-            throw new AppError(502, "飞书授权续期暂时失败，请稍后重试。");
+            throw new AppError(502, "账号授权续期暂时失败，请稍后重试。");
           row = {
             ...row,
             status: "reconnect_required",
@@ -207,20 +122,7 @@ export function userConnections(store, fetchImpl = fetch) {
     locked(`revoke:${row.id}`, async () => {
       row = store.get("user_connections", row.id);
       if (!row?.revocation_pending) return;
-      const bot = app(row);
-      for (const [field, hint] of [
-        ["refresh_token", "refresh_token"],
-        ["access_token", "access_token"],
-      ]) {
-        if (!row[field]) continue;
-        const value = await post(
-          bot,
-          "/oauth/v1/revoke",
-          tokenFields(bot, { token: row[field], token_type_hint: hint }),
-        );
-        if (value.error || (value.code && value.code !== 0))
-          throw new AppError(502, "撤销飞书授权暂未确认，将自动重试。");
-      }
+      await adapter.revoke(row);
       if (store.get("user_connections", row.id)?.generation === row.generation)
         store.put("user_connections", {
           ...row,
@@ -244,38 +146,16 @@ export function userConnections(store, fetchImpl = fetch) {
             r.requirement.scopes === requirement.scopes,
         );
       if (existing && !force) return safeLogin(existing);
-      const bot = app(requirement);
-      const value = await post(
-        bot,
-        "/oauth/v1/device_authorization",
-        {
-          client_id: bot.app_id,
-          scope: [
-            ...new Set([...scopesOf(requirement.scopes), "offline_access"]),
-          ].join(" "),
-        },
-        true,
-      );
-      if (value.error || !value.device_code || !value.verification_uri)
-        throw new AppError(
-          502,
-          "无法发起飞书授权，请检查应用的用户权限是否已开通。",
-        );
-      const url = new URL(
-        value.verification_uri_complete || value.verification_uri,
-      );
-      if (
-        url.protocol !== "https:" ||
-        url.username ||
-        url.password ||
-        ![
-          "accounts.feishu.cn",
-          "open.feishu.cn",
-          "accounts.larksuite.com",
-          "open.larksuite.com",
-        ].includes(url.hostname)
-      )
-        throw new AppError(502, "飞书返回了无效授权地址。");
+      const prior = selected(requirement, owner);
+      const scopes = [
+        ...new Set([
+          ...connectionScopes(requirement.scopes),
+          ...connectionScopes(
+            prior?.status === "connected" ? prior.scopes : "",
+          ),
+        ]),
+      ].join(" ");
+      const value = await adapter.authorize({ ...requirement, scopes });
       const row = {
         id: randomUUID(),
         owner,
@@ -283,7 +163,7 @@ export function userConnections(store, fetchImpl = fetch) {
         requirement,
         status: "pending",
         device_code: value.device_code,
-        verification_url: url.href,
+        verification_url: value.verification_url,
         user_code: value.user_code,
         expires_at:
           Date.now() + Math.min(Number(value.expires_in) || 240, 1800) * 1000,
@@ -321,19 +201,9 @@ export function userConnections(store, fetchImpl = fetch) {
         return;
       }
       if (row.next_at > Date.now()) return;
-      const bot = app(row.requirement);
       row = { ...row, next_at: Date.now() + row.interval * 1000 };
       store.put("connection_logins", row);
-      const value =
-        row.pending_tokens ||
-        (await post(
-          bot,
-          "/oauth/v3/token",
-          tokenFields(bot, {
-            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-            device_code: row.device_code,
-          }),
-        ));
+      const value = row.pending_tokens || (await adapter.exchange(row));
       if (store.get("connection_logins", id)?.status !== "pending") return;
       if (value.error) {
         if (value.error === "authorization_pending") return;
@@ -362,22 +232,13 @@ export function userConnections(store, fetchImpl = fetch) {
         store.put("connection_logins", row);
       }
       const tokens = row.pending_tokens;
-      const info = await request(
-        `https://open.${bot.brand === "lark" ? "larksuite.com" : "feishu.cn"}/open-apis/authen/v1/user_info`,
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
-      );
-      const user = info.data;
-      if (info.code !== 0 || !user?.open_id)
-        throw new AppError(502, "无法确认授权账号身份，请重新连接。");
-      if (
-        row.owner.kind === "feishu" &&
-        user.open_id !== row.owner.subject_id
-      ) {
+      const user = await adapter.identity(row.requirement, tokens);
+      const expected = adapter.expectedSubject(row.requirement, row.owner);
+      if (expected && user.subject_id !== expected) {
         store.put("connection_logins", {
           ...row,
           status: "denied",
-          error:
-            "授权账号与发起任务的飞书账号不一致，请使用自己的账号重新授权。",
+          error: "授权账号与发起任务的账号不一致，请使用自己的账号重新授权。",
           device_code: undefined,
           pending_tokens: undefined,
         });
@@ -385,11 +246,11 @@ export function userConnections(store, fetchImpl = fetch) {
       }
       if (store.get("connection_logins", id)?.status !== "pending") return;
       const connection = {
-        id: key(bot.app_id, user.open_id),
-        bot_id: bot.id,
-        app_id: bot.app_id,
-        subject_id: user.open_id,
-        name: user.name || user.en_name || user.open_id,
+        id: key(row.requirement.app_id, user.subject_id),
+        bot_id: row.requirement.bot_id,
+        app_id: row.requirement.app_id,
+        subject_id: user.subject_id,
+        name: user.name,
         ...tokens,
         status: "connected",
         generation: randomUUID(),
@@ -398,7 +259,7 @@ export function userConnections(store, fetchImpl = fetch) {
         store.put("user_connections", connection);
         if (row.owner.kind === "local")
           store.put("connection_bindings", {
-            id: key("local", bot.app_id),
+            id: key("local", row.requirement.app_id),
             connection_id: connection.id,
           });
         store.put("connection_logins", {
@@ -416,6 +277,8 @@ export function userConnections(store, fetchImpl = fetch) {
       });
     });
   return {
+    requirement: adapter.requirement,
+    owner: adapter.owner,
     begin,
     async prepare(row) {
       const requirement = row.connection_requirement;
@@ -430,18 +293,23 @@ export function userConnections(store, fetchImpl = fetch) {
         )
           throw new AppError(
             428,
-            "此会话的飞书连接已失效，请开启新会话。",
+            "此会话的账号连接已失效，请开启新会话。",
             "connection_expired",
           );
         return row;
       }
+      if (!Object.keys(row.connection_env || {}).length)
+        throw new AppError(
+          409,
+          "此任务未配置连接变量映射，请配置环境模板后开启新会话。",
+        );
       const owner = row.connection_owner;
       let connection = selected(requirement, owner);
       if (
         connection?.status === "connected" &&
         hasScopes(connection, requirement)
       )
-        connection = await refresh(connection, app(requirement));
+        connection = await refresh(connection);
       if (
         !connection ||
         connection.status !== "connected" ||
@@ -458,14 +326,24 @@ export function userConnections(store, fetchImpl = fetch) {
             : await begin(requirement, owner);
         return { ...row, connection_wait: login };
       }
-      const bot = app(requirement);
+      const values = adapter.values(requirement, connection);
+      const env = Object.fromEntries(
+        Object.entries(row.connection_env || {}).map(([name, source]) => {
+          if (
+            !Object.hasOwn(values, source) ||
+            typeof values[source] !== "string"
+          )
+            throw new AppError(400, "连接无法提供环境模板需要的字段。");
+          return [name, values[source]];
+        }),
+      );
       return {
         ...row,
         connection_wait: undefined,
         configuration: {
           ...row.configuration,
           connection: {
-            service: "feishu",
+            service: adapter.service,
             name: connection.name,
             expires_at: connection.expires_at,
           },
@@ -483,11 +361,7 @@ export function userConnections(store, fetchImpl = fetch) {
             ...row.request.environment,
             env: {
               ...row.request.environment.env,
-              LARKSUITE_CLI_APP_ID: bot.app_id,
-              LARKSUITE_CLI_BRAND: bot.brand === "lark" ? "lark" : "feishu",
-              LARKSUITE_CLI_USER_ACCESS_TOKEN: connection.access_token,
-              LARKSUITE_CLI_DEFAULT_AS: "user",
-              LARKSUITE_CLI_STRICT_MODE: "user",
+              ...env,
             },
           },
         },
@@ -515,50 +389,49 @@ export function userConnections(store, fetchImpl = fetch) {
     },
     async api(method, path, body) {
       if (path === "/app/connections" && method === "GET")
-        return store
-          .list("feishu_bots")
-          .filter((b) => b.app_id && b.app_secret)
-          .map((bot) => {
-            const requirement = {
-              service: "feishu",
-              bot_id: bot.id,
-              app_id: bot.app_id,
-            };
-            return {
-              service: "feishu",
-              bot_id: bot.id,
-              app_id: bot.app_id,
-              name: bot.name,
-              required_scopes: [
-                ...new Set(
-                  store
-                    .list("agents")
-                    .filter((a) => a.connection_requirement?.bot_id === bot.id)
-                    .flatMap((a) => scopesOf(a.connection_requirement.scopes)),
-                ),
-              ].join(" "),
-              connection: safeConnection(
-                selected(requirement, { kind: "local" }),
-              ),
-              login: safeLogin(
+        return adapter.applications().map((application) => {
+          const requirement = application;
+          return {
+            ...application,
+            label: adapter.label,
+            default_scopes: adapter.defaultScopes,
+            required_scopes: [
+              ...new Set(
                 store
-                  .list("connection_logins")
-                  .find(
-                    (r) =>
-                      r.owner.kind === "local" &&
-                      r.requirement.app_id === bot.app_id,
+                  .list("agents")
+                  .filter(
+                    (a) =>
+                      a.connection_requirement?.bot_id === application.bot_id,
+                  )
+                  .flatMap((a) =>
+                    connectionScopes(a.connection_requirement.scopes),
                   ),
               ),
-            };
-          });
-      const id = path.match(
-        /^\/app\/connections\/feishu\/([a-f0-9-]{36})$/,
-      )?.[1];
-      if (!id || !uuid.test(id)) throw new AppError(404, "Not found.");
-      const requirement = connectionRequirement(store, {
-        service: "feishu",
+            ].join(" "),
+            connection: safeConnection(
+              selected(requirement, { kind: "local" }),
+            ),
+            login: safeLogin(
+              store
+                .list("connection_logins")
+                .find(
+                  (r) =>
+                    r.owner.kind === "local" &&
+                    r.requirement.app_id === application.app_id,
+                ),
+            ),
+          };
+        });
+      const match = path.match(
+        /^\/app\/connections\/([^/]+)\/([a-f0-9-]{36})$/,
+      );
+      const id = match?.[2];
+      if (!id || !uuid.test(id) || match[1] !== adapter.service)
+        throw new AppError(404, "Not found.");
+      const requirement = adapter.requirement({
+        service: adapter.service,
         bot_id: id,
-        scopes: body?.scopes || "contact:user.base:readonly",
+        scopes: body?.scopes || adapter.defaultScopes,
       });
       if (method === "POST") return begin(requirement, { kind: "local" }, true);
       if (method !== "DELETE") throw new AppError(405, "Method not allowed.");
@@ -627,7 +500,7 @@ export function guardConnectionInput(store, path, body) {
   )
     throw new AppError(
       428,
-      "此会话的飞书连接已失效，请开启新会话。",
+      "此会话的账号连接已失效，请开启新会话。",
       "connection_expired",
     );
 }
