@@ -28,6 +28,7 @@ type executor struct {
 	rpc    *rpcProcess
 	req    proto.PromptRequestPayload
 	active *Session
+	cursor string
 	closed bool
 }
 
@@ -111,6 +112,12 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 		_ = process.Close()
 		return nil, fmt.Errorf("pi: prepare: %w", err)
 	}
+	data, err := process.call(probeCtx, "get_entries", nil)
+	if err != nil {
+		_ = process.Close()
+		return nil, fmt.Errorf("pi: prepare entries: %w", err)
+	}
+	e.cursor = entriesLeaf(data)
 	return e, nil
 }
 
@@ -150,7 +157,7 @@ func (e *executor) StartTurn(ctx context.Context, runID string, input proto.Mess
 		e.mu.Unlock()
 		return nil, fmt.Errorf("pi: a Turn is already active")
 	}
-	t := newSession(runID, out, e.rpc)
+	t := newSession(runID, out, e.rpc, e.cursor)
 	e.active = t
 	e.mu.Unlock()
 

@@ -7,20 +7,27 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/MiniMax-AI/OpenAgentCore/apps/daemon/internal/agent"
 	"github.com/MiniMax-AI/OpenAgentCore/internal/agentdaemon/proto"
 )
 
 // fakePi writes a launcher that runs the test binary as the Pi child, because
 // the Executor intentionally passes only an allowlisted environment.
-func fakePi(t *testing.T) string {
+func fakePi(t *testing.T, extraEnv ...string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("fake Pi launcher uses a POSIX shell")
 	}
 	path := filepath.Join(t.TempDir(), "pi")
-	script := "#!/bin/sh\nGO_WANT_PI_RPC_HELPER=1 exec " + os.Args[0] + " -test.run=^TestExecutorHelper$\n"
+	prefix := "GO_WANT_PI_RPC_HELPER=1 "
+	for _, value := range extraEnv {
+		prefix += value + " "
+	}
+	script := "#!/bin/sh\n" + prefix + "exec " + os.Args[0] + " -test.run=^TestExecutorHelper$\n"
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatalf("fake pi: %v", err)
 	}
@@ -28,9 +35,8 @@ func fakePi(t *testing.T) string {
 	return path
 }
 
-func TestExecutorRunsOneTextTurn(t *testing.T) {
-	fakePi(t)
-	workspace := t.TempDir()
+func prepareTestExecutor(t *testing.T) agent.Executor {
+	t.Helper()
 	factory := NewExecutorFactory(t.TempDir(), t.TempDir())
 	executor, err := factory(context.Background(), proto.PromptRequestPayload{
 		AgentKind: "pi",
@@ -42,11 +48,24 @@ func TestExecutorRunsOneTextTurn(t *testing.T) {
 				"api_key":  "test-key",
 			},
 		},
-		LocalEnvironment: &proto.LocalEnvironment{WorkspaceRoot: workspace},
+		LocalEnvironment: &proto.LocalEnvironment{WorkspaceRoot: t.TempDir()},
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
+	return executor
+}
+
+func drain(out <-chan proto.Envelope) {
+	go func() {
+		for range out {
+		}
+	}()
+}
+
+func TestExecutorRunsOneTextTurn(t *testing.T) {
+	fakePi(t)
+	executor := prepareTestExecutor(t)
 	defer executor.Close(context.Background())
 
 	out := make(chan proto.Envelope, 32)
@@ -86,17 +105,79 @@ func TestExecutorRunsOneTextTurn(t *testing.T) {
 	}
 }
 
-// TestExecutorHelper stands in for the Pi process. It answers the prepare probe
-// synchronously and then plays one text Turn.
+func TestSteerWaitsForNativeEntry(t *testing.T) {
+	fakePi(t)
+	executor := prepareTestExecutor(t)
+	defer executor.Close(context.Background())
+
+	out := make(chan proto.Envelope, 32)
+	turn, err := executor.StartTurn(context.Background(), "run-1", proto.TextInput("hello"), out)
+	if err != nil {
+		t.Fatalf("StartTurn: %v", err)
+	}
+	drain(out)
+	written := 0
+	payload := proto.PromptSteerPayload{Input: proto.TextInput("follow up")}
+	if err := turn.SteerWithReceipt(context.Background(), payload, func() { written++ }); err != nil {
+		t.Fatalf("SteerWithReceipt: %v", err)
+	}
+	if written != 1 {
+		t.Fatalf("written callback ran %d times", written)
+	}
+}
+
+func TestSteerRejectsAmbiguousEntries(t *testing.T) {
+	fakePi(t, "GO_WANT_PI_AMBIGUOUS=1")
+	executor := prepareTestExecutor(t)
+	defer executor.Close(context.Background())
+
+	out := make(chan proto.Envelope, 32)
+	turn, err := executor.StartTurn(context.Background(), "run-1", proto.TextInput("hello"), out)
+	if err != nil {
+		t.Fatalf("StartTurn: %v", err)
+	}
+	drain(out)
+	payload := proto.PromptSteerPayload{Input: proto.TextInput("follow up")}
+	err = turn.SteerWithReceipt(context.Background(), payload, nil)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguity error, got %v", err)
+	}
+}
+
+// TestExecutorHelper stands in for the Pi process. It keeps a small entry tree
+// so receipt reads have something authoritative to return.
 func TestExecutorHelper(t *testing.T) {
 	if os.Getenv("GO_WANT_PI_RPC_HELPER") != "1" {
 		return
 	}
+	ambiguous := os.Getenv("GO_WANT_PI_AMBIGUOUS") == "1"
+	entries := []map[string]any{{"type": "message", "id": "e0", "message": map[string]any{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "seed"}}}}}
+	next := 1
+	appendUser := func(text string) {
+		entries = append(entries, map[string]any{"type": "message", "id": "e" + strconv.Itoa(next), "message": map[string]any{"role": "user", "content": text}})
+		next++
+	}
+	leaf := func() string {
+		last, _ := entries[len(entries)-1]["id"].(string)
+		return last
+	}
+	page := func(since string) map[string]any {
+		start := 0
+		for i, item := range entries {
+			if item["id"] == since {
+				start = i + 1
+				break
+			}
+		}
+		return map[string]any{"entries": entries[start:], "leafId": leaf()}
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		var request struct {
-			ID   string `json:"id"`
-			Type string `json:"type"`
+			ID      string `json:"id"`
+			Type    string `json:"type"`
+			Since   string `json:"since"`
+			Message string `json:"message"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
 			continue
@@ -104,11 +185,18 @@ func TestExecutorHelper(t *testing.T) {
 		switch request.Type {
 		case "prompt":
 			respond(request.ID, request.Type, map[string]any{"disposition": "started"})
+			appendUser(request.Message)
 			writeEvent(map[string]any{"type": "message_update", "assistantMessageEvent": map[string]any{"type": "text_delta", "contentIndex": 0, "delta": "Hello"}})
 			writeEvent(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "Hello"}}}})
 			writeEvent(map[string]any{"type": "agent_settled", "aborted": false})
-		case "clear_queue", "abort":
-			respond(request.ID, request.Type, map[string]any{})
+		case "steer":
+			respond(request.ID, request.Type, map[string]any{"disposition": "queued"})
+			appendUser(request.Message)
+			if ambiguous {
+				appendUser(request.Message + " again")
+			}
+		case "get_entries":
+			respond(request.ID, request.Type, page(request.Since))
 		default:
 			respond(request.ID, request.Type, map[string]any{})
 		}

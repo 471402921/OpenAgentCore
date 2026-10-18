@@ -8,14 +8,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/MiniMax-AI/OpenAgentCore/apps/daemon/internal/agent"
 	"github.com/MiniMax-AI/OpenAgentCore/internal/agentdaemon/proto"
 )
 
-// errReceiptUnavailable fails closed until the native input receipt lands. A
-// required receipt is never reported as Unsupported, and never faked.
-var errReceiptUnavailable = errors.New("pi: native input receipt is not implemented")
+// Pi persists one entry per accepted message. The adapter treats the entry id
+// as a durable cursor and only reports a native receipt when exactly one user
+// entry appears after it; text equality is corruption detection, never identity.
 
 // unsupported reports an extension this adapter does not serve.
 func unsupported(operation string) error {
@@ -33,6 +34,8 @@ type Session struct {
 	err     error
 
 	mu      sync.Mutex
+	steerMu sync.Mutex
+	cursor  string
 	content strings.Builder
 	usage   proto.Usage
 	seq     uint64
@@ -40,8 +43,49 @@ type Session struct {
 	cancel  bool
 }
 
-func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess) *Session {
-	return &Session{runID: runID, out: out, rpc: rpc, settled: make(chan struct{})}
+func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess, cursor string) *Session {
+	return &Session{runID: runID, out: out, rpc: rpc, cursor: cursor, settled: make(chan struct{})}
+}
+
+// entry is one session entry. Only the fields the adapter uses are decoded.
+type entry struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Message struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+}
+
+type entriesPage struct {
+	Entries []entry `json:"entries"`
+	LeafID  string  `json:"leafId"`
+}
+
+// entriesLeaf returns the newest entry id, which every later cursor read starts
+// from. A session without entries has no cursor.
+func entriesLeaf(data json.RawMessage) string {
+	var page entriesPage
+	if err := json.Unmarshal(data, &page); err != nil {
+		return ""
+	}
+	if page.LeafID != "" {
+		return page.LeafID
+	}
+	if len(page.Entries) != 0 {
+		return page.Entries[len(page.Entries)-1].ID
+	}
+	return ""
+}
+
+func userEntries(page entriesPage) []entry {
+	var users []entry
+	for _, item := range page.Entries {
+		if item.Type == "message" && item.Message.Role == "user" {
+			users = append(users, item)
+		}
+	}
+	return users
 }
 
 type piUsage struct {
@@ -230,12 +274,108 @@ func (t *Session) CancellationOutcome() proto.DonePayload {
 	return proto.DonePayload{Content: t.content.String(), Usage: t.usage}
 }
 
-func (t *Session) SteerWithReceipt(context.Context, proto.PromptSteerPayload, func()) error {
-	return errReceiptUnavailable
+func (t *Session) SteerWithReceipt(ctx context.Context, payload proto.PromptSteerPayload, written func()) error {
+	text, ok := payloadText(payload)
+	if !ok {
+		return fmt.Errorf("pi: steering requires text input")
+	}
+	// One pending input per Turn mirrors the Runtime's serialization and Pi's
+	// single in-memory queue.
+	t.steerMu.Lock()
+	defer t.steerMu.Unlock()
+	// Consume every entry written so far (the prompt, earlier steers, assistant
+	// output) so the receipt window covers only this submission.
+	cursor := t.cursor
+	if data, err := t.rpc.call(ctx, "get_entries", map[string]any{"since": cursor}); err == nil {
+		cursor = entriesLeaf(data)
+	}
+	data, err := t.rpc.call(ctx, "steer", map[string]any{"message": text})
+	if err != nil {
+		return err
+	}
+	var ack struct {
+		Disposition string `json:"disposition"`
+	}
+	_ = json.Unmarshal(data, &ack)
+	if ack.Disposition == "handled" {
+		return fmt.Errorf("pi: steering was consumed without a native user message")
+	}
+	if written != nil {
+		written()
+	}
+	return t.awaitUserEntry(ctx, cursor, text)
 }
 
-func (t *Session) Steer(context.Context, proto.PromptSteerPayload) error {
-	return unsupported("steering")
+// awaitUserEntry waits for the native application receipt: exactly one user
+// entry after the cursor, with matching text. Anything else stays unknown.
+func (t *Session) awaitUserEntry(ctx context.Context, cursor, text string) error {
+	deadline := time.Now().Add(t.rpc.timeout)
+	if value, ok := ctx.Deadline(); ok && value.Before(deadline) {
+		deadline = value
+	}
+	for {
+		data, err := t.rpc.call(ctx, "get_entries", map[string]any{"since": cursor})
+		if err != nil {
+			return err
+		}
+		var page entriesPage
+		if err := json.Unmarshal(data, &page); err != nil {
+			return fmt.Errorf("pi: decode entries: %w", err)
+		}
+		users := userEntries(page)
+		switch {
+		case len(users) > 1:
+			return fmt.Errorf("pi: steering entry is ambiguous: %d user entries after the cursor", len(users))
+		case len(users) == 1:
+			if messageText(users[0].Message.Content) != text {
+				return fmt.Errorf("pi: steering entry does not match the submitted input")
+			}
+			t.mu.Lock()
+			t.cursor = entriesLeaf(data)
+			t.mu.Unlock()
+			return nil
+		}
+		if leaf := entriesLeaf(data); leaf != cursor && len(page.Entries) != 0 {
+			cursor = leaf
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("pi: steering application is unknown: no native user entry after the cursor")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func payloadText(payload proto.PromptSteerPayload) (string, bool) {
+	text, err := payload.Input.TextOnly()
+	if err != nil {
+		return "", false
+	}
+	return text, true
+}
+
+func (t *Session) Steer(ctx context.Context, payload proto.PromptSteerPayload) error {
+	text, ok := payloadText(payload)
+	if !ok {
+		return fmt.Errorf("pi: steering requires text input")
+	}
+	t.steerMu.Lock()
+	defer t.steerMu.Unlock()
+	data, err := t.rpc.call(ctx, "steer", map[string]any{"message": text})
+	if err != nil {
+		return err
+	}
+	var ack struct {
+		Disposition string `json:"disposition"`
+	}
+	_ = json.Unmarshal(data, &ack)
+	if ack.Disposition == "handled" {
+		return fmt.Errorf("pi: steering was consumed without a native user message")
+	}
+	return nil
 }
 
 func (t *Session) SubmitFunctionResult(context.Context, proto.FunctionResultPayload) error {
