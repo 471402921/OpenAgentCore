@@ -127,7 +127,11 @@ func (t *Session) handle(event Event) {
 			t.emit(proto.TypeThinking, proto.ThinkingPayload{Text: update.AssistantMessageEvent.Delta, Sequence: t.next()})
 		}
 		if update.Usage != nil {
-			t.emit(proto.TypeUsage, proto.UsagePayload{Usage: convertUsage(update.Usage)})
+			usage := convertUsage(update.Usage)
+			t.mu.Lock()
+			t.usage = usage
+			t.mu.Unlock()
+			t.emit(proto.TypeUsage, proto.UsagePayload{Usage: usage})
 		}
 	case "message_end":
 		var record struct {

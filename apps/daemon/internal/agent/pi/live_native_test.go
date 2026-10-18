@@ -44,31 +44,43 @@ func TestNativePiExecutorReuse(t *testing.T) {
 			t.Error("native owner cleanup failed")
 		}
 	}()
-	run := func(id string) string {
+	var nativeID string
+	run := func(id string) proto.DonePayload {
 		t.Helper()
 		out := make(chan proto.Envelope, 128)
 		turn, err := owner.StartTurn(ctx, id, proto.TextInput("Reply with exactly: ready"), out)
 		if err != nil {
 			t.Fatalf("StartTurn(%s): %v", id, err)
 		}
-		var content string
+		var done proto.DonePayload
 		for envelope := range out {
 			if envelope.Type != proto.TypeDone {
 				continue
 			}
-			var done proto.DonePayload
 			if err := json.Unmarshal(envelope.Payload, &done); err != nil {
 				t.Fatalf("done payload: %v", err)
 			}
-			content = done.Content
 		}
 		if state, err := turn.AwaitSettlement(ctx); err != nil || !state.Reusable {
 			t.Fatalf("settlement(%s): %+v %v", id, state, err)
 		}
-		if strings.TrimSpace(content) == "" {
+		if strings.TrimSpace(done.Content) == "" {
 			t.Fatalf("Turn %s produced no text", id)
 		}
-		return content
+		// A real provider reports usage; a zero value means the adapter lost it.
+		if done.Usage.OutputTokens <= 0 {
+			t.Fatalf("Turn %s reported no output usage", id)
+		}
+		session, _ := done.Metadata[proto.DoneMetaAgentSessionID].(string)
+		if session == "" {
+			t.Fatalf("Turn %s lost the native session identity", id)
+		}
+		if nativeID == "" {
+			nativeID = session
+		} else if session != nativeID {
+			t.Fatalf("Turn %s changed the native session: %s != %s", id, session, nativeID)
+		}
+		return done
 	}
 	run("live-one")
 	run("live-two")
