@@ -41,6 +41,7 @@ type Session struct {
 	failure   error
 	closedOut bool
 	cursor    string
+	toolArgs  map[string]map[string]any
 	content   strings.Builder
 	usage     proto.Usage
 	seq       uint64
@@ -207,17 +208,35 @@ func (t *Session) handle(event Event) {
 		// Pi runs its built-in and extension tools itself, so every call is an
 		// observation. Core rejects a tool_call frame without one, and a missing
 		// observation makes it cancel the whole Turn.
+		//
+		// tool_execution_end carries no args, so the end frame reuses what the
+		// start frame reported. Without them a command observation has no
+		// command and Core rejects it as a storage failure.
 		stage := "before"
 		if event.Type == "tool_execution_end" {
 			stage = "after"
 		}
+		args := call.Args
+		t.mu.Lock()
+		if stage == "before" {
+			if t.toolArgs == nil {
+				t.toolArgs = map[string]map[string]any{}
+			}
+			t.toolArgs[call.ToolCallID] = args
+		} else {
+			if len(args) == 0 {
+				args = t.toolArgs[call.ToolCallID]
+			}
+			delete(t.toolArgs, call.ToolCallID)
+		}
+		t.mu.Unlock()
 		t.emit(proto.TypeToolCall, proto.ToolCallPayload{
 			ID:          call.ToolCallID,
 			Name:        call.ToolName,
 			Stage:       stage,
-			Args:        call.Args,
+			Args:        args,
 			Result:      call.Result,
-			Observation: toolObservation(call.ToolName, call.Args, call.Result, call.IsError, stage, call.DurationMS),
+			Observation: toolObservation(call.ToolName, args, call.Result, call.IsError, stage, call.DurationMS),
 		})
 	case "agent_settled":
 		settled := struct {

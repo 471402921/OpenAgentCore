@@ -57,3 +57,18 @@ func TestToolObservationReadsMCPIdentity(t *testing.T) {
 		t.Fatalf("observation = %+v", observation)
 	}
 }
+
+// TestToolObservationKeepsCommandOnEnd proves the end frame can report a
+// command observation even though Pi sends no args with tool_execution_end.
+func TestToolObservationKeepsCommandOnEnd(t *testing.T) {
+	before := toolObservation("bash", map[string]any{"command": "echo hi"}, nil, false, "before", 0)
+	after := toolObservation("bash", nil,
+		map[string]any{"content": []any{map[string]any{"type": "text", "text": "hi\n"}}},
+		false, "after", 5)
+	if after.Command != "" {
+		t.Fatalf("after without args should have no command, got %q", after.Command)
+	}
+	if before.Command != "echo hi" {
+		t.Fatalf("before command = %q", before.Command)
+	}
+}
