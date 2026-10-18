@@ -127,10 +127,7 @@ export async function validateComponents(root, names, daemonVersion) {
       const info = JSON.parse(probe(node, [join(component, 'dist/runtime_check.js')], component, env));
       if (info.type !== 'runtime_ready' || info.protocol !== 3 || info.sdk !== pins.claude || info.native !== '2.1.269 (Claude Code)' || !info.features?.includes('local_runtime_v2')) throw new Error('Claude runtime compatibility failed');
     } else if (name === 'pi') {
-      const manifest = await json(join(component, 'package', 'package.json'));
-      if (manifest.version !== pins.pi) throw new Error('Pi package pin mismatch');
-      await requireFile(join(component, 'bin', 'pi'));
-      if (probe(join(component, 'bin', 'pi'), ['--version'], component, env) !== pins.pi) throw new Error('Pi native pin mismatch');
+      await validatePiComponent(component, env);
     } else if (name === 'minimax') {
       if (windows) throw new Error('MiniMax is not supported on Windows');
       const upstream = await json(join(component, 'source.json'));
@@ -142,6 +139,15 @@ export async function validateComponents(root, names, daemonVersion) {
       if (info.protocol !== 2 || info.native !== pins.minimax || info.source !== expected.revision) throw new Error('MiniMax companion compatibility failed');
     }
   }
+}
+
+// validatePiComponent owns the packaged Pi layout: the npm package under
+// node_modules plus a launcher that resolves the bundled Node from PATH.
+export async function validatePiComponent(component, env) {
+  const manifest = await json(join(component, 'node_modules', '@earendil-works', 'pi-coding-agent', 'package.json'));
+  if (manifest.version !== pins.pi) throw new Error('Pi package pin mismatch');
+  await requireFile(join(component, 'bin', 'pi'));
+  if (probe(join(component, 'bin', 'pi'), ['--version'], component, env) !== pins.pi) throw new Error('Pi native pin mismatch');
 }
 
 export async function buildBundle(options) {

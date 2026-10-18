@@ -1,7 +1,7 @@
 ---
 title: "Harness 能力"
 source: contracts/agents-api/harness-capabilities.md
-source_hash: 80ffb8c11b260643fbb156beed8f180ab6974efa42a456d70c9b98a464c11fa7
+source_hash: 79af67934b956e210725f364f9c01fb46b0141910ecff2a4caa08cc306e0217e
 ---
 
 本页列出每个 Harness 在每种部署位置支持的能力。Core 根据 `services/core/internal/engine` 中 Harness 的引擎配置决定准入，运行 Session 的 Runtime 也必须声明操作。所链接契约定义各操作；[Harness 接入](harness-onboarding.md#qualify-the-adapter)说明资格验证方法。
@@ -18,7 +18,7 @@ source_hash: 80ffb8c11b260643fbb156beed8f180ab6974efa42a456d70c9b98a464c11fa7
 
 | 操作 | Codex | Claude Code | MiniMax Code | Pi |
 | --- | --- | --- | --- | --- |
-| 文本 Turn、活动输入、取消、重启与继续 | 所有位置已验证 | 所有位置已验证 | 所有位置已验证 | 已准入：`none`、`self-hosted`；仅适配器层真实模型验证 |
+| 文本 Turn、活动输入、取消、重启与继续 | 所有位置已验证 | 所有位置已验证 | 所有位置已验证 | 已准入：`self-hosted`；仅适配器层真实模型验证 |
 | [文件与 Artifact](environment-files.md) | 已验证：托管、自托管 | 已验证：托管、自托管 | 已验证：托管、自托管 | 拒绝 |
 | [仅空白消息文本](message-content.md) | 已准入；原样交付 | 已拒绝 | 已拒绝 | 拒绝 |
 | [内联 PNG、JPEG 消息图像](message-content.md) | 所有位置已验证 | 所有位置已验证 | 已拒绝 | 拒绝 |

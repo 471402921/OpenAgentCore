@@ -114,6 +114,30 @@ func TestExecutorRunsOneTextTurn(t *testing.T) {
 	}
 }
 
+func TestModelErrorFailsTheTurn(t *testing.T) {
+	fakePi(t, "GO_WANT_PI_MODEL_ERROR=1")
+	executor := prepareTestExecutor(t)
+	defer executor.Close(context.Background())
+
+	out := make(chan proto.Envelope, 32)
+	turn, err := executor.StartTurn(context.Background(), "run-1", proto.TextInput("hello"), out)
+	if err != nil {
+		t.Fatalf("StartTurn: %v", err)
+	}
+	var sawError bool
+	for envelope := range out {
+		if envelope.Type == proto.TypeError {
+			sawError = true
+		}
+	}
+	if !sawError {
+		t.Fatal("a failed model response must emit an error frame")
+	}
+	if state, err := turn.AwaitSettlement(context.Background()); err == nil || state.Reusable {
+		t.Fatalf("failed Turn settled as reusable: %+v %v", state, err)
+	}
+}
+
 func TestSteerWaitsForNativeEntry(t *testing.T) {
 	fakePi(t)
 	executor := prepareTestExecutor(t)
@@ -160,6 +184,7 @@ func TestExecutorHelper(t *testing.T) {
 		return
 	}
 	ambiguous := os.Getenv("GO_WANT_PI_AMBIGUOUS") == "1"
+	modelError := os.Getenv("GO_WANT_PI_MODEL_ERROR") == "1"
 	active := false
 	entries := []map[string]any{{"type": "message", "id": "e0", "message": map[string]any{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "seed"}}}}}
 	next := 1
@@ -201,7 +226,11 @@ func TestExecutorHelper(t *testing.T) {
 				active = true
 				continue
 			}
-			writeEvent(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "Hello"}}}})
+			if modelError {
+				writeEvent(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []map[string]any{}, "stopReason": "error", "errorMessage": "invalid api key"}})
+			} else {
+				writeEvent(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "Hello"}}}})
+			}
 			writeEvent(map[string]any{"type": "agent_settled", "aborted": false})
 		case "steer":
 			respond(request.ID, request.Type, map[string]any{"disposition": "queued"})

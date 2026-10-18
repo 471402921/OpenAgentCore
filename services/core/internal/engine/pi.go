@@ -8,7 +8,7 @@ func piProfile() Profile {
 	return Profile{
 		RetainedNativeHistory:          proto.CapabilitySupported,
 		ProgrammaticToolCallingDisable: proto.CapabilityUnsupported,
-		Placements:                     []string{"none", "self_hosted"},
+		Placements:                     []string{"self_hosted"},
 		MCPOrigins:                     []string{"environment"},
 		MessageImages:                  proto.CapabilityUnsupported,
 		WhitespaceOnlyText:             proto.CapabilityUnsupported,

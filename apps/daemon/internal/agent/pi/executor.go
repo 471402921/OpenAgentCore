@@ -2,6 +2,7 @@ package pi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -65,18 +66,24 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 	if req.LocalEnvironment == nil || strings.TrimSpace(req.LocalEnvironment.WorkspaceRoot) == "" {
 		return nil, fmt.Errorf("pi: a workspace directory is required")
 	}
-	agentDir := filepath.Join(runtimeRoot, "agent")
+	// Each Session owns its private agent directory and home: two concurrent
+	// Sessions with different frozen models must not share models.json.
+	sessionRoot := filepath.Join(runtimeRoot, "agents", sessionDirectoryName(req.AgentStateKey))
+	agentDir := filepath.Join(sessionRoot, "agent")
 	if err := writeModelConfig(agentDir, prepared); err != nil {
 		return nil, err
 	}
-	home := filepath.Join(runtimeRoot, "home")
+	home := filepath.Join(sessionRoot, "home")
 	sessionDir := filepath.Join(stateRoot, "sessions")
 	for _, dir := range []string{home, sessionDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("pi: prepare directory: %w", err)
 		}
 	}
-	sessionID := uuid.NewString()
+	sessionID := req.AgentSessionID
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
 	args := []string{
 		"--mode", "rpc",
 		"--session-id", sessionID,
@@ -94,6 +101,13 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 	}
 	if level, ok := prepared.HarnessConfig["thinking_level"].(string); ok {
 		args = append(args, "--thinking", level)
+	}
+	if prompt, ok := req.AgentOptions["system_prompt"].(string); ok && prompt != "" {
+		path := filepath.Join(sessionRoot, "system-prompt.md")
+		if err := os.WriteFile(path, []byte(prompt), 0o600); err != nil {
+			return nil, fmt.Errorf("pi: write system prompt: %w", err)
+		}
+		args = append(args, "--system-prompt", path)
 	}
 	process, err := startRPC(ctx, StartOptions{
 		Binary: defaultBinary(),
@@ -121,6 +135,14 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 	if err != nil {
 		_ = process.Close()
 		return nil, fmt.Errorf("pi: prepare entries: %w", err)
+	}
+	var page entriesPage
+	_ = json.Unmarshal(data, &page)
+	if req.RequireExistingNativeSession && len(page.Entries) == 0 {
+		// Pi creates a missing session on `--session-id`; never let recovery
+		// silently start a new root when existing history was required.
+		_ = process.Close()
+		return nil, fmt.Errorf("pi: required native session history is missing")
 	}
 	e.cursor = entriesLeaf(data)
 	return e, nil
@@ -220,4 +242,28 @@ func (e *executor) ListWorkspaceDirectory(context.Context, string, int) (agent.W
 
 func (e *executor) WriteWorkspaceFile(context.Context, string, []byte) (agent.WorkspaceWriteResult, error) {
 	return agent.WorkspaceWriteResult{}, unsupported("workspace_write")
+}
+
+// sessionDirectoryName converts the Runtime state key into one path component.
+func sessionDirectoryName(key string) string {
+	if key == "" {
+		key = "session"
+	}
+	var name strings.Builder
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			name.WriteRune(r)
+		default:
+			name.WriteByte('-')
+		}
+	}
+	value := strings.Trim(name.String(), ".")
+	if value == "" {
+		value = "session"
+	}
+	if len(value) > 96 {
+		value = value[:96]
+	}
+	return value
 }

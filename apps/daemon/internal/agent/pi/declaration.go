@@ -26,7 +26,7 @@ var Declaration = agent.Declaration{Info: proto.SupportedAgentKind{
 		Steering:                       proto.CapabilitySupported,
 		MessageItems:                   proto.CapabilitySupported,
 		ToolObservations:               proto.CapabilitySupported,
-		EnvironmentNone:                proto.CapabilitySupported,
+		EnvironmentNone:                proto.CapabilityUnsupported,
 		LocalEnvironment:               proto.CapabilitySupported,
 		Preparation:                    proto.CapabilityUnsupported,
 		WorkspaceReadPreparation:       proto.CapabilityUnsupported,

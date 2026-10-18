@@ -34,14 +34,16 @@ type Session struct {
 	settle  agent.TurnSettlement
 	err     error
 
-	mu      sync.Mutex
-	steerMu sync.Mutex
-	cursor  string
-	content strings.Builder
-	usage   proto.Usage
-	seq     uint64
-	index   int
-	cancel  bool
+	mu        sync.Mutex
+	steerMu   sync.Mutex
+	failure   error
+	closedOut bool
+	cursor    string
+	content   strings.Builder
+	usage     proto.Usage
+	seq       uint64
+	index     int
+	cancel    bool
 }
 
 func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess, cursor, sessionID string) *Session {
@@ -135,9 +137,27 @@ func (t *Session) handle(event Event) {
 		}
 	case "message_end":
 		var record struct {
-			Message messageRecord `json:"message"`
+			Message struct {
+				Role         string          `json:"role"`
+				Content      json.RawMessage `json:"content"`
+				StopReason   string          `json:"stopReason"`
+				ErrorMessage string          `json:"errorMessage"`
+			} `json:"message"`
 		}
 		if err := json.Unmarshal(event.Raw, &record); err != nil || record.Message.Role != "assistant" {
+			return
+		}
+		if reason := record.Message.StopReason; reason == "error" || reason == "aborted" {
+			t.mu.Lock()
+			cancelled := t.cancel
+			t.mu.Unlock()
+			if reason == "error" || !cancelled {
+				message := record.Message.ErrorMessage
+				if message == "" {
+					message = "model response ended with " + reason
+				}
+				t.fail(fmt.Errorf("pi: %s", message))
+			}
 			return
 		}
 		text := messageText(record.Message.Content)
@@ -163,11 +183,21 @@ func (t *Session) handle(event Event) {
 		}
 		t.emit(proto.TypeToolCall, proto.ToolCallPayload{ID: call.ToolCallID, Name: call.ToolName, Stage: stage, Args: call.Args, Result: call.Result})
 	case "agent_settled":
-		var settled struct {
+		settled := struct {
 			Aborted bool `json:"aborted"`
-		}
+		}{}
 		_ = json.Unmarshal(event.Raw, &settled)
-		t.finish(agent.TurnSettlement{Reusable: true}, nil)
+		t.mu.Lock()
+		failure, cancelled := t.failure, t.cancel
+		t.mu.Unlock()
+		switch {
+		case failure != nil:
+			t.fail(failure)
+		case settled.Aborted && !cancelled:
+			t.fail(fmt.Errorf("pi: run aborted without a cancellation request"))
+		default:
+			t.finish(agent.TurnSettlement{Reusable: true}, nil)
+		}
 	}
 }
 
@@ -215,6 +245,12 @@ func (t *Session) emit(typ string, payload any) {
 	if err != nil {
 		return
 	}
+	t.mu.Lock()
+	if t.closedOut {
+		t.mu.Unlock()
+		return
+	}
+	t.mu.Unlock()
 	t.out <- envelope
 }
 
@@ -226,6 +262,11 @@ func (t *Session) next() uint64 {
 }
 
 func (t *Session) fail(err error) {
+	t.mu.Lock()
+	if t.failure == nil {
+		t.failure = err
+	}
+	t.mu.Unlock()
 	t.finish(agent.TurnSettlement{Reason: err.Error()}, err)
 }
 
@@ -243,6 +284,9 @@ func (t *Session) finish(settlement agent.TurnSettlement, err error) {
 			settlement.Reusable = true
 		}
 		t.emit(proto.TypeDone, proto.DonePayload{Content: content, Usage: usage, Metadata: t.metadata()})
+		t.mu.Lock()
+		t.closedOut = true
+		t.mu.Unlock()
 		close(t.out)
 		t.settle = settlement
 		t.err = err

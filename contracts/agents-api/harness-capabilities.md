@@ -16,7 +16,7 @@ Placements are `none` (no Environment), hosted (`openai_hosted`) and self-hosted
 
 | Operation | Codex | Claude Code | MiniMax Code | Pi |
 | --- | --- | --- | --- | --- |
-| Text Turns, active input, cancellation, restart and continuation | Verified on all placements | Verified on all placements | Verified on all placements | Admitted: `none`, `self-hosted`; adapter-level real-model verification only |
+| Text Turns, active input, cancellation, restart and continuation | Verified on all placements | Verified on all placements | Verified on all placements | Admitted: `self-hosted`; adapter-level real-model verification only |
 | [Files and Artifacts](./environment-files.md) | Verified: hosted, self-hosted | Verified: hosted, self-hosted | Verified: hosted, self-hosted | Rejected |
 | [Whitespace-only message text](./message-content.md) | Admitted; delivered unchanged | Rejected | Rejected | Rejected |
 | [Inline PNG and JPEG message images](./message-content.md) | Verified on all placements | Verified on all placements | Rejected | Rejected |
