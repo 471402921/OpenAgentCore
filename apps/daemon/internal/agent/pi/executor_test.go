@@ -37,17 +37,26 @@ func fakePi(t *testing.T, extraEnv ...string) string {
 
 func prepareTestExecutor(t *testing.T) agent.Executor {
 	t.Helper()
+	return prepareTestExecutorWith(t, nil)
+}
+
+func prepareTestExecutorWith(t *testing.T, harnessConfig map[string]any) agent.Executor {
+	t.Helper()
 	factory := NewExecutorFactory(t.TempDir(), t.TempDir())
-	executor, err := factory(context.Background(), proto.PromptRequestPayload{
-		AgentKind: "pi",
-		AgentOptions: map[string]any{
-			"model": "test-model",
-			"model_provider": map[string]any{
-				"protocol": "chat_completions",
-				"base_url": "http://127.0.0.1:1/v1",
-				"api_key":  "test-key",
-			},
+	options := map[string]any{
+		"model": "test-model",
+		"model_provider": map[string]any{
+			"protocol": "chat_completions",
+			"base_url": "http://127.0.0.1:1/v1",
+			"api_key":  "test-key",
 		},
+	}
+	if harnessConfig != nil {
+		options["harness_config"] = harnessConfig
+	}
+	executor, err := factory(context.Background(), proto.PromptRequestPayload{
+		AgentKind:        "pi",
+		AgentOptions:     options,
 		LocalEnvironment: &proto.LocalEnvironment{WorkspaceRoot: t.TempDir()},
 	})
 	if err != nil {
@@ -151,6 +160,7 @@ func TestExecutorHelper(t *testing.T) {
 		return
 	}
 	ambiguous := os.Getenv("GO_WANT_PI_AMBIGUOUS") == "1"
+	active := false
 	entries := []map[string]any{{"type": "message", "id": "e0", "message": map[string]any{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "seed"}}}}}
 	next := 1
 	appendUser := func(text string) {
@@ -187,6 +197,10 @@ func TestExecutorHelper(t *testing.T) {
 			respond(request.ID, request.Type, map[string]any{"disposition": "started"})
 			appendUser(request.Message)
 			writeEvent(map[string]any{"type": "message_update", "assistantMessageEvent": map[string]any{"type": "text_delta", "contentIndex": 0, "delta": "Hello"}})
+			if request.Message == "wait" {
+				active = true
+				continue
+			}
 			writeEvent(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []map[string]any{{"type": "text", "text": "Hello"}}}})
 			writeEvent(map[string]any{"type": "agent_settled", "aborted": false})
 		case "steer":
@@ -197,6 +211,12 @@ func TestExecutorHelper(t *testing.T) {
 			}
 		case "get_entries":
 			respond(request.ID, request.Type, page(request.Since))
+		case "abort":
+			respond(request.ID, request.Type, map[string]any{})
+			if active {
+				active = false
+				writeEvent(map[string]any{"type": "agent_settled", "aborted": true})
+			}
 		default:
 			respond(request.ID, request.Type, map[string]any{})
 		}

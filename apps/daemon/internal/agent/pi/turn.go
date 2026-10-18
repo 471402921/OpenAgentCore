@@ -24,9 +24,10 @@ func unsupported(operation string) error {
 }
 
 type Session struct {
-	runID string
-	out   chan<- proto.Envelope
-	rpc   *rpcProcess
+	runID     string
+	sessionID string
+	out       chan<- proto.Envelope
+	rpc       *rpcProcess
 
 	settled chan struct{}
 	once    sync.Once
@@ -43,8 +44,8 @@ type Session struct {
 	cancel  bool
 }
 
-func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess, cursor string) *Session {
-	return &Session{runID: runID, out: out, rpc: rpc, cursor: cursor, settled: make(chan struct{})}
+func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess, cursor, sessionID string) *Session {
+	return &Session{runID: runID, sessionID: sessionID, out: out, rpc: rpc, cursor: cursor, settled: make(chan struct{})}
 }
 
 // entry is one session entry. Only the fields the adapter uses are decoded.
@@ -237,12 +238,16 @@ func (t *Session) finish(settlement agent.TurnSettlement, err error) {
 		} else if cancelled {
 			settlement.Reusable = true
 		}
-		t.emit(proto.TypeDone, proto.DonePayload{Content: content, Usage: usage})
+		t.emit(proto.TypeDone, proto.DonePayload{Content: content, Usage: usage, Metadata: t.metadata()})
 		close(t.out)
 		t.settle = settlement
 		t.err = err
 		close(t.settled)
 	})
+}
+
+func (t *Session) metadata() map[string]any {
+	return map[string]any{proto.DoneMetaAgentSessionID: t.sessionID}
 }
 
 func (t *Session) AwaitSettlement(ctx context.Context) (agent.TurnSettlement, error) {
@@ -255,6 +260,13 @@ func (t *Session) AwaitSettlement(ctx context.Context) (agent.TurnSettlement, er
 }
 
 func (t *Session) Cancel(ctx context.Context) error {
+	select {
+	case <-t.settled:
+		// A settled Turn owns nothing: aborting the process now would cancel a
+		// successor Turn.
+		return nil
+	default:
+	}
 	t.mu.Lock()
 	t.cancel = true
 	t.mu.Unlock()
@@ -271,7 +283,7 @@ func (t *Session) Cancel(ctx context.Context) error {
 func (t *Session) CancellationOutcome() proto.DonePayload {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return proto.DonePayload{Content: t.content.String(), Usage: t.usage}
+	return proto.DonePayload{Content: t.content.String(), Usage: t.usage, Metadata: t.metadata()}
 }
 
 func (t *Session) SteerWithReceipt(ctx context.Context, payload proto.PromptSteerPayload, written func()) error {

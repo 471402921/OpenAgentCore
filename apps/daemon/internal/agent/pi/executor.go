@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/MiniMax-AI/OpenAgentCore/apps/daemon/internal/agent"
+	"github.com/google/uuid"
+
 	"github.com/MiniMax-AI/OpenAgentCore/internal/agentdaemon/proto"
 	configuration "github.com/MiniMax-AI/OpenAgentCore/internal/harnessconfig/pi"
 )
@@ -24,12 +26,13 @@ const prepareTimeout = 15 * time.Second
 const turnTools = "read,bash,edit,write,grep,find,ls"
 
 type executor struct {
-	mu     sync.Mutex
-	rpc    *rpcProcess
-	req    proto.PromptRequestPayload
-	active *Session
-	cursor string
-	closed bool
+	mu        sync.Mutex
+	sessionID string
+	rpc       *rpcProcess
+	req       proto.PromptRequestPayload
+	active    *Session
+	cursor    string
+	closed    bool
 }
 
 var _ agent.Executor = (*executor)(nil)
@@ -73,8 +76,10 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 			return nil, fmt.Errorf("pi: prepare directory: %w", err)
 		}
 	}
+	sessionID := uuid.NewString()
 	args := []string{
 		"--mode", "rpc",
+		"--session-id", sessionID,
 		"--provider", providerID,
 		"--model", prepared.Model,
 		"--session-dir", sessionDir,
@@ -104,7 +109,7 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 	if err != nil {
 		return nil, err
 	}
-	e := &executor{rpc: process, req: req}
+	e := &executor{rpc: process, req: req, sessionID: sessionID}
 	go e.pump()
 	probeCtx, cancel := context.WithTimeout(ctx, prepareTimeout)
 	defer cancel()
@@ -154,10 +159,15 @@ func (e *executor) StartTurn(ctx context.Context, runID string, input proto.Mess
 		return nil, fmt.Errorf("pi: executor closed")
 	}
 	if e.active != nil {
-		e.mu.Unlock()
-		return nil, fmt.Errorf("pi: a Turn is already active")
+		select {
+		case <-e.active.settled:
+			e.active = nil
+		default:
+			e.mu.Unlock()
+			return nil, fmt.Errorf("pi: a Turn is already active")
+		}
 	}
-	t := newSession(runID, out, e.rpc, e.cursor)
+	t := newSession(runID, out, e.rpc, e.cursor, e.sessionID)
 	e.active = t
 	e.mu.Unlock()
 
