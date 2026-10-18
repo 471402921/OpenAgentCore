@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -197,15 +198,27 @@ func (t *Session) handle(event Event) {
 			ToolName   string         `json:"toolName"`
 			Args       map[string]any `json:"args"`
 			Result     map[string]any `json:"result"`
+			IsError    bool           `json:"isError"`
+			DurationMS int64          `json:"durationMs"`
 		}
 		if err := json.Unmarshal(event.Raw, &call); err != nil {
 			return
 		}
+		// Pi runs its built-in and extension tools itself, so every call is an
+		// observation. Core rejects a tool_call frame without one, and a missing
+		// observation makes it cancel the whole Turn.
 		stage := "before"
 		if event.Type == "tool_execution_end" {
 			stage = "after"
 		}
-		t.emit(proto.TypeToolCall, proto.ToolCallPayload{ID: call.ToolCallID, Name: call.ToolName, Stage: stage, Args: call.Args, Result: call.Result})
+		t.emit(proto.TypeToolCall, proto.ToolCallPayload{
+			ID:          call.ToolCallID,
+			Name:        call.ToolName,
+			Stage:       stage,
+			Args:        call.Args,
+			Result:      call.Result,
+			Observation: toolObservation(call.ToolName, call.Args, call.Result, call.IsError, stage, call.DurationMS),
+		})
 	case "agent_settled":
 		settled := struct {
 			Aborted bool `json:"aborted"`
@@ -303,6 +316,12 @@ func (t *Session) finish(settlement agent.TurnSettlement, err error) {
 		cancelled := t.cancel
 		t.mu.Unlock()
 		if err != nil {
+			// The wire frame carries the message to Core; the daemon log needs
+			// it too, otherwise a failed Turn only shows as type=error.
+			fmt.Fprintf(os.Stderr, "pi: turn failed: %v\n", err)
+			if tail := strings.TrimSpace(t.rpc.Stderr()); tail != "" {
+				fmt.Fprintf(os.Stderr, "pi: harness stderr:\n%s\n", tail)
+			}
 			t.emit(proto.TypeError, proto.ErrorPayload{Error: err.Error(), Code: "runtime_error"})
 		} else if cancelled {
 			settlement.Reusable = true
@@ -476,4 +495,117 @@ func (t *Session) ListWorkspaceDirectory(context.Context, string, int) (agent.Wo
 
 func (t *Session) WriteWorkspaceFile(context.Context, string, []byte) (agent.WorkspaceWriteResult, error) {
 	return agent.WorkspaceWriteResult{}, unsupported("workspace_write")
+}
+
+// toolObservation maps one native tool execution onto the engine-neutral
+// observation Core stores. Command and MCP calls keep their own item shapes;
+// everything else is reported as a function call so the arguments and the
+// result stay visible without asking Core to execute anything.
+func toolObservation(name string, args, result map[string]any, isError bool, stage string, durationMS int64) *proto.ToolObservation {
+	observation := &proto.ToolObservation{Name: name}
+	switch {
+	case name == "bash":
+		observation.Kind = "command"
+		if command, ok := args["command"].(string); ok {
+			observation.Command = command
+		}
+		if cwd, ok := args["cwd"].(string); ok {
+			observation.Cwd = &cwd
+		}
+		if stage == "after" {
+			observation.Output = toolText(result)
+			if isError {
+				observation.Status = "failed"
+				observation.Error = toolText(result)
+			}
+		}
+	case strings.HasPrefix(name, "mcp__"):
+		observation.Kind = "mcp"
+		server, tool, found := strings.Cut(strings.TrimPrefix(name, "mcp__"), "__")
+		if found {
+			observation.Server, observation.Name = server, tool
+		}
+		if stage == "after" {
+			observation.Output = toolText(result)
+			if isError {
+				observation.Status = "failed"
+				observation.Error = toolText(result)
+			}
+		}
+	default:
+		observation.Kind = "function"
+		if encoded, err := json.Marshal(args); err == nil {
+			observation.Arguments = encoded
+		}
+		if stage == "after" {
+			if content := toolContent(result); content != nil {
+				observation.Content = content
+			}
+			if isError {
+				observation.Status = "failed"
+			}
+		}
+	}
+	if stage == "before" {
+		observation.Status = "in_progress"
+	} else {
+		if observation.Status == "" {
+			observation.Status = "completed"
+		}
+		if durationMS > 0 {
+			observation.DurationMS = &durationMS
+		}
+	}
+	return observation
+}
+
+// toolText flattens a native tool result into the text Core stores.
+func toolText(result map[string]any) json.RawMessage {
+	content := toolContent(result)
+	if content == nil {
+		return nil
+	}
+	var text strings.Builder
+	for _, part := range *content {
+		if part.Text != nil {
+			text.WriteString(*part.Text)
+		}
+	}
+	encoded, err := json.Marshal(text.String())
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
+// toolContent converts Pi's result content parts into Core's input parts.
+func toolContent(result map[string]any) *[]proto.InputContent {
+	raw, ok := result["content"]
+	if !ok {
+		return nil
+	}
+	parts, ok := raw.([]any)
+	if !ok || len(parts) == 0 {
+		return nil
+	}
+	content := make([]proto.InputContent, 0, len(parts))
+	for _, item := range parts {
+		part, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if kind, _ := part["type"].(string); kind != "text" {
+			continue
+		}
+		text, ok := part["text"].(string)
+		if !ok {
+			continue
+		}
+		value := text
+		content = append(content, proto.InputContent{Type: "input_text", Text: &value})
+	}
+	if len(content) == 0 {
+		return nil
+	}
+	return &content
 }
