@@ -29,10 +29,11 @@ type Session struct {
 	out       chan<- proto.Envelope
 	rpc       *rpcProcess
 
-	settled chan struct{}
-	once    sync.Once
-	settle  agent.TurnSettlement
-	err     error
+	settled         chan struct{}
+	once            sync.Once
+	settle          agent.TurnSettlement
+	err             error
+	observeMessages bool
 
 	mu        sync.Mutex
 	steerMu   sync.Mutex
@@ -43,11 +44,12 @@ type Session struct {
 	usage     proto.Usage
 	seq       uint64
 	index     int
+	currentID string
 	cancel    bool
 }
 
-func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess, cursor, sessionID string) *Session {
-	return &Session{runID: runID, sessionID: sessionID, out: out, rpc: rpc, cursor: cursor, settled: make(chan struct{})}
+func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess, cursor, sessionID string, observeMessages bool) *Session {
+	return &Session{runID: runID, sessionID: sessionID, out: out, rpc: rpc, cursor: cursor, observeMessages: observeMessages, settled: make(chan struct{})}
 }
 
 // entry is one session entry. Only the fields the adapter uses are decoded.
@@ -114,6 +116,17 @@ type messageRecord struct {
 
 func (t *Session) handle(event Event) {
 	switch event.Type {
+	case "message_start":
+		var record struct {
+			Message messageRecord `json:"message"`
+		}
+		if err := json.Unmarshal(event.Raw, &record); err != nil || record.Message.Role != "assistant" {
+			return
+		}
+		t.mu.Lock()
+		t.index++
+		t.currentID = t.runID + ":assistant:" + strconv.Itoa(t.index)
+		t.mu.Unlock()
 	case "message_update":
 		var update struct {
 			Usage                 *piUsage       `json:"usage"`
@@ -122,9 +135,12 @@ func (t *Session) handle(event Event) {
 		if err := json.Unmarshal(event.Raw, &update); err != nil {
 			return
 		}
+		t.mu.Lock()
+		item := t.currentID
+		t.mu.Unlock()
 		switch update.AssistantMessageEvent.Type {
 		case "text_delta":
-			t.emit(proto.TypeDelta, proto.DeltaPayload{Delta: update.AssistantMessageEvent.Delta, Sequence: t.next()})
+			t.emit(proto.TypeDelta, proto.DeltaPayload{ItemID: item, Delta: update.AssistantMessageEvent.Delta, Sequence: t.next()})
 		case "thinking_delta":
 			t.emit(proto.TypeThinking, proto.ThinkingPayload{Text: update.AssistantMessageEvent.Delta, Sequence: t.next()})
 		}
@@ -163,10 +179,18 @@ func (t *Session) handle(event Event) {
 		text := messageText(record.Message.Content)
 		t.mu.Lock()
 		t.content.WriteString(text)
-		t.index++
-		id := t.runID + ":assistant:" + strconv.Itoa(t.index)
+		id := t.currentID
+		if id == "" {
+			t.index++
+			id = t.runID + ":assistant:" + strconv.Itoa(t.index)
+		}
+		observe := t.observeMessages
 		t.mu.Unlock()
-		t.emit(proto.TypeOutputMessage, proto.OutputMessagePayload{ID: id, Status: "completed", Text: &text})
+		// Message boundaries are opt-in observations. Emitting a completed
+		// message without the request duplicates the streamed text downstream.
+		if observe {
+			t.emit(proto.TypeOutputMessage, proto.OutputMessagePayload{ID: id, Status: "completed", Text: &text})
+		}
 	case "tool_execution_start", "tool_execution_end":
 		var call struct {
 			ToolCallID string         `json:"toolCallId"`

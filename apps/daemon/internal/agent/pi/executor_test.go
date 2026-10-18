@@ -58,6 +58,7 @@ func prepareTestExecutorWith(t *testing.T, harnessConfig map[string]any) agent.E
 		AgentKind:        "pi",
 		AgentOptions:     options,
 		LocalEnvironment: &proto.LocalEnvironment{WorkspaceRoot: t.TempDir()},
+		ObserveMessages:  true,
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)

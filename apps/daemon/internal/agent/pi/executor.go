@@ -189,7 +189,7 @@ func (e *executor) StartTurn(ctx context.Context, runID string, input proto.Mess
 			return nil, fmt.Errorf("pi: a Turn is already active")
 		}
 	}
-	t := newSession(runID, out, e.rpc, e.cursor, e.sessionID)
+	t := newSession(runID, out, e.rpc, e.cursor, e.sessionID, e.req.ObserveMessages)
 	e.active = t
 	e.mu.Unlock()
 
