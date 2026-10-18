@@ -1,15 +1,12 @@
-// Package pi implements the Runtime adapter declaration for the Pi coding
-// agent. Pi runs as a child process and speaks its native RPC mode over stdio;
-// the adapter never reimplements Pi's model or tool loop.
-//
-// The execution runtime lands with the RPC transport and Turn lifecycle. Until
-// then discovery reports the adapter as unavailable, so no Session can select
-// a capability this build cannot serve.
+// Package pi implements the Runtime adapter for the Pi coding agent. Pi runs as
+// a child process and speaks its native RPC mode over stdio; the adapter never
+// reimplements Pi's model or tool loop.
 package pi
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/MiniMax-AI/OpenAgentCore/apps/daemon/internal/agent"
 	"github.com/MiniMax-AI/OpenAgentCore/internal/agentdaemon/proto"
@@ -52,10 +49,19 @@ var Declaration = agent.Declaration{Info: proto.SupportedAgentKind{
 	},
 }, Configuration: configuration.Configuration(), Discover: discover}
 
-// discover reports the adapter as unavailable until its execution runtime is
-// registered. Version probing, configuration rendering and the Executor factory
-// belong to that runtime, not to this declaration.
-func discover(_ context.Context, options agent.DiscoveryOptions, info proto.SupportedAgentKind) *agent.Runtime {
-	fmt.Fprintln(options.Stderr, "oac-daemon: pi unavailable: this build has no Pi execution runtime")
-	return &agent.Runtime{Info: info}
+func discover(parent context.Context, options agent.DiscoveryOptions, info proto.SupportedAgentKind) *agent.Runtime {
+	runtime := &agent.Runtime{Info: info}
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	version, err := CheckCLIAvailable(ctx, "")
+	if err != nil {
+		fmt.Fprintf(options.Stderr, "oac-daemon: pi unavailable: %v\n", err)
+		return runtime
+	}
+	runtime.Info.Available, runtime.Info.Version = true, version
+	runtime.Info.Capabilities.WorkspaceReadPreparation = proto.CapabilityFromBool(
+		runtime.Info.Capabilities.LocalEnvironment.IsSupported())
+	runtime.Executor = NewExecutorFactory(options.StateRoot, options.RuntimeRoot)
+	fmt.Fprintf(options.Stdout, "Pi preflight ok (%s)\n", version)
+	return runtime
 }

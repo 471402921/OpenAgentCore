@@ -22,7 +22,7 @@ func unsupported(operation string) error {
 	return fmt.Errorf("%w: %s", agent.ErrUnsupportedOperation, operation)
 }
 
-type turn struct {
+type Session struct {
 	runID string
 	out   chan<- proto.Envelope
 	rpc   *rpcProcess
@@ -40,19 +40,8 @@ type turn struct {
 	cancel  bool
 }
 
-var (
-	_ agent.Turn                     = (*turn)(nil)
-	_ agent.Session                  = (*turn)(nil)
-	_ agent.DurableSteerer           = (*turn)(nil)
-	_ agent.Steerer                  = (*turn)(nil)
-	_ agent.FunctionResultSubmitter  = (*turn)(nil)
-	_ agent.WorkspaceReader          = (*turn)(nil)
-	_ agent.WorkspaceDirectoryLister = (*turn)(nil)
-	_ agent.WorkspaceWriter          = (*turn)(nil)
-)
-
-func newTurn(runID string, out chan<- proto.Envelope, rpc *rpcProcess) *turn {
-	return &turn{runID: runID, out: out, rpc: rpc, settled: make(chan struct{})}
+func newSession(runID string, out chan<- proto.Envelope, rpc *rpcProcess) *Session {
+	return &Session{runID: runID, out: out, rpc: rpc, settled: make(chan struct{})}
 }
 
 type piUsage struct {
@@ -76,7 +65,7 @@ type messageRecord struct {
 	Content json.RawMessage `json:"content"`
 }
 
-func (t *turn) handle(event Event) {
+func (t *Session) handle(event Event) {
 	switch event.Type {
 	case "message_update":
 		var update struct {
@@ -172,7 +161,7 @@ func messageText(content json.RawMessage) string {
 	return ""
 }
 
-func (t *turn) emit(typ string, payload any) {
+func (t *Session) emit(typ string, payload any) {
 	envelope, err := proto.NewEnvelope(typ, t.runID, payload)
 	if err != nil {
 		return
@@ -180,19 +169,19 @@ func (t *turn) emit(typ string, payload any) {
 	t.out <- envelope
 }
 
-func (t *turn) next() uint64 {
+func (t *Session) next() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.seq++
 	return t.seq
 }
 
-func (t *turn) fail(err error) {
+func (t *Session) fail(err error) {
 	t.finish(agent.TurnSettlement{Reason: err.Error()}, err)
 }
 
 // finish publishes the terminal frames once and releases the output channel.
-func (t *turn) finish(settlement agent.TurnSettlement, err error) {
+func (t *Session) finish(settlement agent.TurnSettlement, err error) {
 	t.once.Do(func() {
 		t.mu.Lock()
 		content := t.content.String()
@@ -212,7 +201,7 @@ func (t *turn) finish(settlement agent.TurnSettlement, err error) {
 	})
 }
 
-func (t *turn) AwaitSettlement(ctx context.Context) (agent.TurnSettlement, error) {
+func (t *Session) AwaitSettlement(ctx context.Context) (agent.TurnSettlement, error) {
 	select {
 	case <-t.settled:
 		return t.settle, t.err
@@ -221,7 +210,7 @@ func (t *turn) AwaitSettlement(ctx context.Context) (agent.TurnSettlement, error
 	}
 }
 
-func (t *turn) Cancel(ctx context.Context) error {
+func (t *Session) Cancel(ctx context.Context) error {
 	t.mu.Lock()
 	t.cancel = true
 	t.mu.Unlock()
@@ -235,32 +224,32 @@ func (t *turn) Cancel(ctx context.Context) error {
 	return err
 }
 
-func (t *turn) CancellationOutcome() proto.DonePayload {
+func (t *Session) CancellationOutcome() proto.DonePayload {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return proto.DonePayload{Content: t.content.String(), Usage: t.usage}
 }
 
-func (t *turn) SteerWithReceipt(context.Context, proto.PromptSteerPayload, func()) error {
+func (t *Session) SteerWithReceipt(context.Context, proto.PromptSteerPayload, func()) error {
 	return errReceiptUnavailable
 }
 
-func (t *turn) Steer(context.Context, proto.PromptSteerPayload) error {
+func (t *Session) Steer(context.Context, proto.PromptSteerPayload) error {
 	return unsupported("steering")
 }
 
-func (t *turn) SubmitFunctionResult(context.Context, proto.FunctionResultPayload) error {
+func (t *Session) SubmitFunctionResult(context.Context, proto.FunctionResultPayload) error {
 	return unsupported("function_result")
 }
 
-func (t *turn) ReadWorkspaceFile(context.Context, string, int) (agent.WorkspaceReadResult, error) {
+func (t *Session) ReadWorkspaceFile(context.Context, string, int) (agent.WorkspaceReadResult, error) {
 	return agent.WorkspaceReadResult{}, unsupported("workspace_read")
 }
 
-func (t *turn) ListWorkspaceDirectory(context.Context, string, int) (agent.WorkspaceDirectoryResult, error) {
+func (t *Session) ListWorkspaceDirectory(context.Context, string, int) (agent.WorkspaceDirectoryResult, error) {
 	return agent.WorkspaceDirectoryResult{}, unsupported("workspace_list")
 }
 
-func (t *turn) WriteWorkspaceFile(context.Context, string, []byte) (agent.WorkspaceWriteResult, error) {
+func (t *Session) WriteWorkspaceFile(context.Context, string, []byte) (agent.WorkspaceWriteResult, error) {
 	return agent.WorkspaceWriteResult{}, unsupported("workspace_write")
 }

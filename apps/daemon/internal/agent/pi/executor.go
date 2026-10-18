@@ -27,7 +27,7 @@ type executor struct {
 	mu     sync.Mutex
 	rpc    *rpcProcess
 	req    proto.PromptRequestPayload
-	active *turn
+	active *Session
 	closed bool
 }
 
@@ -150,7 +150,7 @@ func (e *executor) StartTurn(ctx context.Context, runID string, input proto.Mess
 		e.mu.Unlock()
 		return nil, fmt.Errorf("pi: a Turn is already active")
 	}
-	t := newTurn(runID, out, e.rpc)
+	t := newSession(runID, out, e.rpc)
 	e.active = t
 	e.mu.Unlock()
 
@@ -191,4 +191,16 @@ func (e *executor) Close(ctx context.Context) error {
 		}
 	}
 	return e.rpc.Close()
+}
+
+func (e *executor) ReadWorkspaceFile(context.Context, string, int) (agent.WorkspaceReadResult, error) {
+	return agent.WorkspaceReadResult{}, unsupported("workspace_read")
+}
+
+func (e *executor) ListWorkspaceDirectory(context.Context, string, int) (agent.WorkspaceDirectoryResult, error) {
+	return agent.WorkspaceDirectoryResult{}, unsupported("workspace_list")
+}
+
+func (e *executor) WriteWorkspaceFile(context.Context, string, []byte) (agent.WorkspaceWriteResult, error) {
+	return agent.WorkspaceWriteResult{}, unsupported("workspace_write")
 }
