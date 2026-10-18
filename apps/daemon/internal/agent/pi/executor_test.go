@@ -184,6 +184,11 @@ func TestExecutorHelper(t *testing.T) {
 	if os.Getenv("GO_WANT_PI_RPC_HELPER") != "1" {
 		return
 	}
+	if path := os.Getenv("GO_WANT_PI_ARG_FILE"); path != "" {
+		if err := os.WriteFile(path, []byte(strings.Join(os.Args, "\n")), 0o600); err != nil {
+			t.Fatalf("write args: %v", err)
+		}
+	}
 	ambiguous := os.Getenv("GO_WANT_PI_AMBIGUOUS") == "1"
 	modelError := os.Getenv("GO_WANT_PI_MODEL_ERROR") == "1"
 	active := false
@@ -264,4 +269,47 @@ func writeEvent(value map[string]any) {
 		return
 	}
 	_, _ = os.Stdout.Write(append(line, '\n'))
+}
+
+// TestPrepareLoadsTheImageExtensions proves the daemon hands Pi the entry
+// points the image declares, and nothing from the Session.
+func TestPrepareLoadsTheImageExtensions(t *testing.T) {
+	root := t.TempDir()
+	entry := filepath.Join(root, "demo", "extension.js")
+	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(entry, []byte("export {};\n"), 0o600); err != nil {
+		t.Fatalf("write entry: %v", err)
+	}
+	writeExtensions(t, root, []string{"demo/extension.js"})
+	t.Setenv(extensionRootEnv, root)
+	argsFile := filepath.Join(t.TempDir(), "args")
+	// A dedicated launcher records the arguments this package builds; the
+	// shared fakePi ignores them because its helper reads only stdin.
+	launcher := filepath.Join(t.TempDir(), "pi")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsFile +
+		"\nGO_WANT_PI_RPC_HELPER=1 exec " + os.Args[0] + " -test.run=^TestExecutorHelper$\n"
+	if err := os.WriteFile(launcher, []byte(script), 0o700); err != nil {
+		t.Fatalf("fake pi: %v", err)
+	}
+	t.Setenv("OAC_RUNTIME_PI_BIN", launcher)
+
+	executor := prepareTestExecutor(t)
+	defer func() { _ = executor.Close(context.Background()) }()
+
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := strings.Split(string(raw), "\n")
+	found := false
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--extension" && args[i+1] == entry {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("args = %v, want --extension %s", args, entry)
+	}
 }

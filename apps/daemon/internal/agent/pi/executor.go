@@ -84,13 +84,17 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 	if sessionID == "" {
 		sessionID = uuid.NewString()
 	}
+	extensions, err := loadExtensions(os.Getenv(extensionRootEnv))
+	if err != nil {
+		return nil, fmt.Errorf("pi: %w", err)
+	}
 	args := []string{
 		"--mode", "rpc",
 		"--session-id", sessionID,
 		"--provider", providerID,
 		"--model", prepared.Model,
 		"--session-dir", sessionDir,
-		"--tools", turnTools,
+		"--tools", strings.Join(append([]string{turnTools}, extensions.Tools...), ","),
 		"--no-approve",
 		"--no-extensions",
 		"--no-mcp",
@@ -98,6 +102,9 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 		"--no-prompt-templates",
 		"--no-themes",
 		"--no-context-files",
+	}
+	for _, path := range extensions.Entries {
+		args = append(args, "--extension", path)
 	}
 	if level, ok := prepared.HarnessConfig["thinking_level"].(string); ok {
 		args = append(args, "--thinking", level)
@@ -113,12 +120,12 @@ func prepare(ctx context.Context, stateRoot, runtimeRoot string, req proto.Promp
 		Binary: defaultBinary(),
 		Args:   args,
 		Dir:    req.LocalEnvironment.WorkspaceRoot,
-		Env: []string{
+		Env: append([]string{
 			"PATH=" + os.Getenv("PATH"),
 			"HOME=" + home,
 			"PI_CODING_AGENT_DIR=" + agentDir,
 			modelKeyEnv + "=" + prepared.Provider.APIKey,
-		},
+		}, extensions.Env...),
 	})
 	if err != nil {
 		return nil, err
